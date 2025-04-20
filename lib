@@ -1,0 +1,23 @@
+#!/bin/bash
+
+source -- "base"
+set_script_path
+
+routes_file=""
+indirect_call_by_route_file=false
+queue_configuration_options_count=0
+queue_configuration_options=()
+queue_configuration_options_wideness=()
+
+function __desynchronize_with_configuration() {
+	routes_file="$1"; shift
+	# linearized array data with arbitrary wideness
+	queue_configuration_options+=("$@")
+	queue_configuration_options_wideness+=($#)
+	((queue_configuration_options_count++))
+}
+
+function __run() {
+	indirect_call_by_route_file=true
+	source -- "desynchronizer"
+}

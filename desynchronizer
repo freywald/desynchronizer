@@ -1,34 +1,18 @@
 #!/bin/bash
 
-function nclr() {
-	local j
+[[ -z "${MY_LIB:-}" ]] && source -- "lib" && MY_LIB=0
 
-	for ((j = 0; j <= "${1:-1}"; j++ )); do
-		tput cuu1
-	done
+readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
 
-	tput ed
-}
-
-function array_contains()
-{
-	local token="$1"
+input=${1:-}
+if [[ -n "$routes_file" ]]; then
+	routes_file="$input.desynchronize"
 	shift
-
-	for element in "$@"; do
-		[[ "$token" == "$element" ]] && return 0
-	done
-
-	return 1
-}
-
-readarray -t routes_files < <(ls -- ./*".routes" 2> "/dev/null")
-
-if [[ "${1:0:1}" != "-" && -n "$1" ]]; then
-	routes_file="$1.routes"
+elif [[ "${input:0:1}" != "-" && -n "$input" ]]; then
+	routes_file="$input.desynchronize"
 	shift
 elif (( ${#routes_files[@]} == 0 )); then
-	echo>&2 -e "ERROR: No route definition file found! (search expression: *.routes)"
+	echo>&2 -e "ERROR: No route definition file found! (search expression: *.desynchronize)"
 	exit 1
 elif (( ${#routes_files[@]} > 1 )); then
 	PS3="Which route file shall be used?"
@@ -47,27 +31,28 @@ else
 fi
 
 route_name="${routes_file%.*}"
+filter_rules_file=""
+source_pre_hook=""
+source_post_hook=""
+target_pre_hook=""
+target_post_hook=""
+debug=true
 
 length=1
 current_line_number=1
 i=0
-queue_configuration_options_count=0
-queue_configuration_options=()
-queue_configuration_options_wideness=()
-
-function __desynchronize_with_configuration() {
-	# linearized array data with arbitrary wideness
-	queue_configuration_options+=("$@")
-	queue_configuration_options_wideness+=($#)
-	((queue_configuration_options_count++))
-}
 
 forwardable_parameter="rsync-options"
 
-# shellcheck source=/dev/null
-source -- "$routes_file"
+if ! $indirect_call_by_route_file; then
+	# shellcheck source=/dev/null
+	source -- "$routes_file"
+fi
+
+forwardable_parameter="rsync-options"
 
 cursor=0
+
 for (( r = 0; r < queue_configuration_options_count; r++)); do
 	wideness="${queue_configuration_options_wideness[r]}"
 
@@ -81,9 +66,11 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	queue_parameters=()
 
-	for queue_configuration_option in "$@"; do
-    	queue_parameters+=("$queue_configuration_option")
-    done
+	if $indirect_call_by_route_file; then
+		for queue_configuration_option in "$@"; do
+			queue_parameters+=("$queue_configuration_option")
+		done
+	fi
 
 	for queue_configuration_option in "${queue_configuration_options[@]:$cursor:$wideness}"; do
 		queue_parameters+=("$queue_configuration_option")
@@ -130,19 +117,19 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				shift
 				;;
 			--source-pre-hook)
-				source_pre_hook="${2}"
+				source_pre_hook="$2"
 				shift
 				;;
 			--source-post-hook)
-				source_post_hook="${2}"
+				source_post_hook="$2"
 				shift
 				;;
 			--target-pre-hook)
-				target_pre_hook="${2}"
+				target_pre_hook="$2"
 				shift
 				;;
 			--target-post-hook)
-				target_post_hook="${2}"
+				target_post_hook="$2"
 				shift
 				;;
 			--verbose)
@@ -155,8 +142,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				validate=true
 				;;
 			--)
-				if [[ -n "$2" ]]; then
-					echo>&2 "UNKNOWN_DATA: $2"
+
+				if [[ -n "${2:-}" ]]; then
+					echo>&2 "UNKNOWN_DATA: ${2:-}"
+
 					exit 1
 				fi
 
@@ -207,11 +196,11 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				if $is_forwardable_parameter; then
 					forwarded_parameters+=( "$value" )
 					open_unknown=false
-                    open_forward=true
+					open_forward=true
 				else
 					unknown_parameters+=( "$parameter" )
 					open_unknown=true
-                    open_forward=false
+					open_forward=false
 				fi
 
 				collect_arguments_until_double_slash=true
@@ -228,9 +217,49 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	done
 
 	for parameter in "${original_program_arguments[@]}"; do
+		if ! array_contains "$parameter" "${ignore_everything_but_known_parameter_list[@]}"; then
+			if [[ "${parameter:0:1}" == "-" && "${parameter:1:1}" != "-" ]]; then
+					forwarded_parameters+=( "$parameter" )
+			fi
+		fi
+	done
+
+	current_date="$(date +"%d.%m.%Y [%H∶%M:%S]")"
+
+	if [[ "$filter_rules_file" == "" && -f "$__current_directory$route_name.filter-rules" ]]; then
+		filter_rules_file="$route_name.filter-rules"
+	fi
+
+	if [[ -n "$source_pre_hook" ]]; then
+		if [[ "${source_pre_hook:0:1}" != "/" ]]; then
+			source_pre_hook="$source/$source_pre_hook"
+		fi
+   		source_pre_hook="$(realpath --quiet -- "$source_pre_hook")"
+	fi
+
+	if [[ -n "$source_post_hook" ]]; then
+		if [[ "${source_post_hook:0:1}" != "/" ]]; then
+			source_post_hook="$source/$source_post_hook"
+		fi
+		source_post_hook="$(realpath --quiet -- "$source_post_hook")"
+	fi
+
+	if [[ -n "$target_pre_hook" ]]; then
+		 if [[ "${target_pre_hook:0:1}" != "/" ]]; then
+			  target_pre_hook="$target/$target_pre_hook"
+		fi
+   		target_pre_hook="$(realpath --quiet -- "$target_pre_hook")"
+	fi
+
+	if [[ -n "$target_post_hook" ]]; then
+		if [[ "${target_post_hook:0:1}" != "/" ]]; then
+			target_post_hook="$target/$target_post_hook"
+		fi
+		target_post_hook="$(realpath --quiet -- "$target_post_hook")"
+
     	if ! array_contains "$parameter" "${ignore_everything_but_known_parameter_list[@]}"; then
     		if [[ "${parameter:0:1}" == "-" && "${parameter:1:1}" != "-" ]]; then
-					forwarded_parameters+=( "$parameter" )
+				forwarded_parameters+=( "$parameter" )
     		fi
     	fi
     done
@@ -274,17 +303,17 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	fi
 
 	if [[ -z "$target_post_hook" ]]; then
-    	target_post_hook="$source_post_hook"
+		target_post_hook="$source_post_hook"
     fi
 
 	basename="$(basename -- "$source")"
 
 	if (( ${#unknown_parameters[@]} > 0 )); then
-			echo>&2 "ERROR: unknown parameters: $1"
+			echo>&2 "ERROR: unknown parameters: ${1:-}"
 			for queue_configuration_option in "${unknown_parameters[@]}"; do
 				echo>&2 "\n *$queue_configuration_option*"
 			done
-    	exit 1
+		exit 1
     fi
 
     debug=false
@@ -298,12 +327,12 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		echo "$source_post_hook"
 		echo "$target_pre_hook"
 		echo "$target_post_hook"
-    fi
+	fi
 
 	custom_options=("${forwarded_parameters[@]}")
 
 	if [[ -n "$filter_rules_file" ]]; then
-    	custom_options+=(--filter="merge $filter_rules_file")
+		custom_options+=(--filter="merge $filter_rules_file")
     fi
 
 	options_that_take_precedence_last=()
@@ -320,17 +349,17 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	else
 		synchronizer_application_data_path="$target/desynchronizer/$current_date"
 		target="$target/files/"
-        backup_directory="$synchronizer_application_data_path/backup-files"
-        my_default_log_file="$synchronizer_application_data_path/default.log"
-        error_log_file="$synchronizer_application_data_path/error.log"
+		backup_directory="$synchronizer_application_data_path/backup-files"
+		my_default_log_file="$synchronizer_application_data_path/default.log"
+		error_log_file="$synchronizer_application_data_path/error.log"
 	fi
 
 	if [[ -n "$remote" ]]; then # @todo atm remote desynchronization is not supported for synchronizer
-    	#remote="$remote:$target"
-    	remote="$target"
-    else
-    	remote="$target"
-    fi
+		#remote="$remote:$target"
+		remote="$target"
+	else
+		remote="$target"
+	fi
 
 	echo -e "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n"
 	echo -e "DESYNCHRONIZING '$basename'\n"
@@ -373,9 +402,9 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	cat -- "$error_log_file"
 
 	if $is_mirror; then
-		echo > "$remote/🤍🩵💙 \$desynchronized\$ 💙🩵🤍"
-		echo > "$remote/💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️"
-		echo > "$remote/🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡"
+		echo >| "$remote/🤍🩵💙 \$desynchronized\$ 💙🩵🤍"
+		echo >| "$remote/💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️"
+		echo >| "$remote/🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡"
 	fi
 
 	[[ -n "$source_post_hook" ]] && (cd -- "$source" && "$source_post_hook" "post" "source")
@@ -391,4 +420,3 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	((current_line_number+=1))
 	((i+=length))
 done
-

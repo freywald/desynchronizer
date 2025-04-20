@@ -33,7 +33,7 @@ Scientists have asked files and files replied. Files approve of safe desynchroni
 ```bash
 path="$HOME/bin/applications/desynchronizer" && \
 mkdir --parents -- "$path" && \
-git clone -- git@github.com:freywald/desynchronizer.git "$path" && \
+git clone -- https://github.com/freywald/desynchronizer "$path" && \
 cd -- "$path" && \
 git remote set-url --push origin push_disabled && \
 ./install && \
