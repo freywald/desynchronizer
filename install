@@ -1,0 +1,3 @@
+#!/bin/bash
+echo 'PATH="$HOME/bin/applications/desynchronizer:$PATH"' >> "$HOME/.bashrc"
+echo "Installation successful!"
