@@ -267,7 +267,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				forwarded_parameters+=( "$parameter" )
     		fi
     	fi
-    done
+    fi
 
 	current_date="$(date +"%d.%m.%Y [%H∶%M:%S]")"
 
