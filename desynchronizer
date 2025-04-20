@@ -45,6 +45,11 @@ i=0
 forwardable_parameter="rsync-options"
 
 if ! $indirect_call_by_route_file; then
+	if [[ ! -f "$routes_file" ]]; then
+    	echo>&2 -e "ERROR: Route definition file \"$routes_file\" NOT found!"
+    	exit 1
+    fi
+
 	# shellcheck source=/dev/null
 	source -- "$routes_file"
 fi
