@@ -318,10 +318,9 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			for queue_configuration_option in "${unknown_parameters[@]}"; do
 				echo>&2 "\n *$queue_configuration_option*"
 			done
+
 		exit 1
     fi
-
-    debug=false
 
 	if $debug; then
 		echo -ne "\n\n forwarded_parameters:\n"
