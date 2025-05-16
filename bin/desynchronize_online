@@ -1,0 +1,78 @@
+#!/bin/bash
+
+default_configuration_file="configuration.desynchronized"
+require_directory_format='__🖧desynchronized🖧'
+
+# end defaults
+
+function get_real_path()
+{
+	local former_directory
+	former_directory="$(pwd)"
+	local source="$1"
+	while [[ -L "$source" ]]; do # resolve $source until the file is no longer a symlink
+		local directory
+		directory="$(cd -P "$(dirname -- "$source")" > "/dev/null" 2>&1 && pwd)"
+		source="$(readlink -- "$source")"
+		[[ "$source" != /* ]] && source="$directory/$source" # if $source was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+	done
+
+	cd -- "$former_directory" || exit 1
+	echo "$source"
+}
+
+configuration_file=""
+
+if [[ -z "${1:-}" ]]; then
+	configuration_file="$default_configuration_file"
+elif [[ "$1" == "--desynchronize" ]]; then
+	if [[ ! -d "$require_directory_format" ]]; then
+		echo "ERROR: script needs to be executed in a special directory with the name: '$require_directory_format'"
+		exit 1
+	fi
+	cd -- "$require_directory_format"
+	configuration_file="$default_configuration_file"
+else
+	configuration_file="$(basename -- "$1")"
+	cd -- "$(dirname -- "$1")"
+	shift
+fi
+
+current_directory="$(pwd)"
+
+path_last_segment="$(basename -- $(pwd))"
+if [[ "$path_last_segment" != "$require_directory_format" ]]; then
+	echo "ERROR: script needs to be executed in a special directory with the name: '$require_directory_format'"
+	exit 1
+fi
+
+if [[ ! -f "$configuration_file" ]]; then
+	echo "ERROR: $configuration_file configuration file does not exist!"
+	exit 1
+fi
+
+source -- "$configuration_file"
+
+function desynchronize_with_rclone {
+	source_path="$1"
+	target_directory="$2"
+	
+	echo -ne "Syncing $source_path?\n\n"
+	echo -ne rclone sync --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --check-first --update --track-renames --metadata "$source_path" "$target_server":/"$target_pathname/$target_directory\n\n"
+	read -r -p "Press enter to continue…"
+	
+	rclone sync --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --check-first --update --track-renames --metadata "$source_path" "$target_server":/"$target_pathname/$target_directory"
+}
+
+for directory in *; do
+	[[ ! -d "$directory" ]] && continue
+	[[ ! -L "$directory" ]] && continue
+	[[ ! -a "$directory" ]] && continue
+
+	directory_name="$(basename -- "$directory")"
+	[[ "$directory_name" == "bin" ]] && continue
+
+	source_directory="$(get_real_path "$current_directory/$directory")"
+	desynchronize_with_rclone "$source_directory" "$directory_name"
+done
+

@@ -31,7 +31,7 @@ Scientists have asked files and files replied. Files approve of safe desynchroni
 
 1. Please execute the following shell command in your shell.
 ```bash
-path="$HOME/bin/applications/desynchronizer" && \
+path="$HOME/applications/desynchronizer" && \
 mkdir --parents -- "$path" && \
 git clone -- https://github.com/freywald/desynchronizer "$path" && \
 cd -- "$path" && \
@@ -42,6 +42,7 @@ echo "Installation successful."
 2. Installation successful.
 3. Done.
 4. You're done.
+5. And you're done.
 
 ## "No right to garbage" (Official Hymn of Data Rights)
 
