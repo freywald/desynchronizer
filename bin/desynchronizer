@@ -1,6 +1,6 @@
 #!/bin/bash
 
-[[ -z "${MY_LIB:-}" ]] && source -- "lib" && MY_LIB=0
+[[ -z "${__DESYNCHRONIZER_INCLUDE_ONCE_LIBRARY:-}" ]] && source -- "$(realpath "$(dirname -- "${BASH_SOURCE[-1]}")/../")/lib"
 
 readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
 
@@ -46,13 +46,16 @@ forwardable_parameter="rsync-options"
 
 if ! $indirect_call_by_route_file; then
 	if [[ ! -f "$routes_file" ]]; then
-    	echo>&2 -e "ERROR: Route definition file \"$routes_file\" NOT found!"
+    	echo>&2 -e "ERROR: route definition file \"$routes_file\" NOT found!"
     	exit 1
     fi
 
 	# shellcheck source=/dev/null
 	source -- "$routes_file"
 fi
+
+#echo "RET: " $@
+#exit
 
 forwardable_parameter="rsync-options"
 
@@ -68,33 +71,36 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	remote=""
 	forwarded_parameters=()
 	unknown_parameters=()
-
 	queue_parameters=()
+	flat_structure=false
+	structure_postfix=""
 
-	if $indirect_call_by_route_file; then
-		for queue_configuration_option in "$@"; do
-			queue_parameters+=("$queue_configuration_option")
-		done
-	fi
+	#if ! $indirect_call_by_route_file; then
+	#	for queue_configuration_option in "$@"; do
+	#		 queue_parameters+=("$queue_configuration_option")
+	#	done
+	#fi
 
 	for queue_configuration_option in "${queue_configuration_options[@]:$cursor:$wideness}"; do
 		queue_parameters+=("$queue_configuration_option")
 	done
 
-	original_program_arguments=("$@")
 	program_arguments="${queue_parameters[*]}"
 	long_options="simulate,validate,verbose,mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
 	short_options=":"
 	parsed_options=$(getopt --options="$short_options" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") || true
-
-	eval "set -- $parsed_options"
-
+	#echo $@;exit
+	
+	eval "set --  $parsed_options"
+	original_program_arguments=("$@")
+	
 	while (($#)); do
 		case "$1" in
 			--mirror)
 				flat_structure=true
 				structure_postfix=""
 				is_mirror=true
+
 				;;
 			--flat)
 				flat_structure=true
@@ -220,11 +226,13 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			fi
 		fi
 	done
-
-	for parameter in "${original_program_arguments[@]}"; do
-		if ! array_contains "$parameter" "${ignore_everything_but_known_parameter_list[@]}"; then
-			if [[ "${parameter:0:1}" == "-" && "${parameter:1:1}" != "-" ]]; then
-					forwarded_parameters+=( "$parameter" )
+	
+	echo ${original_program_arguments[@]}
+	
+	for parameter2 in "${original_program_arguments[@]}"; do
+		if ! array_contains "$parameter2" "${ignore_everything_but_known_parameter_list[@]}"; then
+			if [[ "${parameter2:0:1}" == "-" && "${parameter:1:1}" != "-" ]]; then
+				forwarded_parameters+=( "$parameter2" )
 			fi
 		fi
 	done
@@ -261,12 +269,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			target_post_hook="$target/$target_post_hook"
 		fi
 		target_post_hook="$(realpath --quiet -- "$target_post_hook")"
-
-    	if ! array_contains "$parameter" "${ignore_everything_but_known_parameter_list[@]}"; then
-    		if [[ "${parameter:0:1}" == "-" && "${parameter:1:1}" != "-" ]]; then
-				forwarded_parameters+=( "$parameter" )
-    		fi
-    	fi
     fi
 
 	current_date="$(date +"%d.%m.%Y [%H∶%M:%S]")"
@@ -318,9 +320,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			for queue_configuration_option in "${unknown_parameters[@]}"; do
 				echo>&2 "\n *$queue_configuration_option*"
 			done
-
 		exit 1
     fi
+
+    debug=false
 
 	if $debug; then
 		echo -ne "\n\n forwarded_parameters:\n"
