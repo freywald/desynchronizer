@@ -30,11 +30,11 @@ elif [[ "$1" == "--desynchronize" ]]; then
 		echo "ERROR: script needs to be executed in a special directory with the name: '$require_directory_format'"
 		exit 1
 	fi
-	cd -- "$require_directory_format"
+	cd -- "$require_directory_format" || exit 1
 	configuration_file="$default_configuration_file"
 else
 	configuration_file="$(basename -- "$1")"
-	cd -- "$(dirname -- "$1")"
+	cd -- "$(dirname -- "$1")" || exit 1
 	shift
 fi
 
@@ -51,6 +51,7 @@ if [[ ! -f "$configuration_file" ]]; then
 	exit 1
 fi
 
+# shellcheck disable=SC1090
 source -- "$configuration_file"
 
 function desynchronize_with_rclone {
