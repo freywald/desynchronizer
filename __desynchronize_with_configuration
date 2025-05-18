@@ -1,5 +1,0 @@
-#!/bin/bash
-
-[[ -z "${__DESYNCHRONIZER_INCLUDE_ONCE_LIBRARY:-}" ]] && source -- "lib"
-__desynchronize_with_external_configuration "$@"
-

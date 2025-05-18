@@ -1,7 +1,7 @@
 #!/bin/bash
 __DESYNCHRONIZER_INCLUDE_ONCE_LIBRARY="true"
 
-source -- "$(realpath "$(dirname -- "${BASH_SOURCE[-1]}")/../")/base"
+source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/")/base"
 set_script_path
 
 routes_file=""
@@ -11,17 +11,8 @@ queue_configuration_options=()
 queue_configuration_options_wideness=()
 
 function __desynchronize_with_configuration() {
-	routes_file="$1"; shift
-	
 	# linearized array data with arbitrary wideness
 	queue_configuration_options+=("$@")
 	queue_configuration_options_wideness+=($#)
 	((queue_configuration_options_count++))
 }
-
-function __desynchronize_with_external_configuration() {
-	__desynchronize_with_configuration "$@"
-	indirect_call_by_route_file=true
-	source -- "desynchronizer" #@todo falscher ansatz, wenn mehrere __desynchronize_with_configuration in filem.desychronize enthaltne sind, funktioneirt das nicht gut.
-}
-
