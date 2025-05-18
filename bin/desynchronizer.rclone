@@ -27,7 +27,7 @@ if [[ -z "${1:-}" ]]; then
 	configuration_file="$default_configuration_file"
 elif [[ "$1" == "--desynchronize" ]]; then
 	if [[ ! -d "$require_directory_format" ]]; then
-		echo "ERROR: script needs to be executed in a special directory with the name: '$require_directory_format'"
+		echo>&2 -e "ERROR: script needs to be executed in a special directory with the name: '$require_directory_format'"
 		exit 1
 	fi
 	cd -- "$require_directory_format" || exit 1
@@ -40,14 +40,14 @@ fi
 
 current_directory="$(pwd)"
 
-path_last_segment="$(basename -- $(pwd))"
+path_last_segment="$(basename -- "$(pwd)")"
 if [[ "$path_last_segment" != "$require_directory_format" ]]; then
-	echo "ERROR: script needs to be executed in a special directory with the name: '$require_directory_format'"
+	echo>&2 -e "ERROR: script needs to be executed in a special directory with the name: '$require_directory_format'"
 	exit 1
 fi
 
 if [[ ! -f "$configuration_file" ]]; then
-	echo "ERROR: $configuration_file configuration file does not exist!"
+	echo>&2 -e "ERROR: $configuration_file configuration file does not exist!"
 	exit 1
 fi
 

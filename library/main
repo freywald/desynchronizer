@@ -10,7 +10,7 @@ queue_configuration_options_count=0
 queue_configuration_options=()
 queue_configuration_options_wideness=()
 
-function __desynchronize_with_configuration() {
+function desynchronize_with_configuration() {
 	# linearized array data with arbitrary wideness
 	queue_configuration_options+=("$@")
 	queue_configuration_options_wideness+=($#)

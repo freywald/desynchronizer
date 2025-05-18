@@ -1,11 +1,10 @@
 #!/bin/bash
 
-[[ -z "${__DESYNCHRONIZER_INCLUDE_ONCE_LIBRARY:-}" ]] && source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/../")/lib"
+[[ -z "${__DESYNCHRONIZER_INCLUDE_ONCE_LIBRARY:-}" ]] && source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/../")/library/main"
+
+# parse arguments
 
 file_option=""
-forwardable_parameter="rsync-options"
-
-ignore_arguments=("--file")
 
 long_options="file:"
 short_options=":"
@@ -31,10 +30,13 @@ while (( i<len )); do
 			input_parameters+=("${parsed_options[i]}")
 			;;
 	esac
+
 	((i++))
 done
 
 set -- "${input_parameters[@]}"
+
+# evaluate arguments
 
 if [[ -z "$file_option" ]]; then
 	readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
@@ -43,19 +45,18 @@ if [[ -z "$file_option" ]]; then
 	if [[ -n "$possible_file_option" ]]; then
 		routes_file="$possible_file_option.desynchronize"
 
-		new=()
-		remove_index=0
+		new_array=()
+		index_removed=0
 		for parameter in "${original_program_arguments[@]}"; do
-			if [[ "${parameter:0:1}" != "-" && "${parameter:1:1}" != "-" && $remove_index == 0 ]]; then
-				remove_index=1
+			if [[ "${parameter:0:1}" != "-" && "${parameter:1:1}" != "-" && $index_removed == 0 ]]; then
+				index_removed=1
 
 				continue
 			fi
-			new+=("$parameter")
+			new_array+=("$parameter")
 		done
 
-		original_program_arguments=("${new[@]}")
-
+		original_program_arguments=("${new_array[@]}")
 		shift
 	elif (( ${#routes_files[@]} == 0 )); then
 		echo>&2 -e "ERROR: No route definition file found! (search expression: *.desynchronize)"
@@ -63,6 +64,7 @@ if [[ -z "$file_option" ]]; then
 		exit 1
 	elif (( ${#routes_files[@]} > 1 )); then
 		PS3="Which route file shall be used?"
+
 		select name in "${routes_files[@]}"; do
 			for reply in $REPLY; do
 				if [[ "$reply" =~ ^[1-9]+[0-9]*$ ]]; then
@@ -79,14 +81,15 @@ if [[ -z "$file_option" ]]; then
 else
 	routes_files=()
 	routes_file="$file_option"
+
 	if [[ $file_option == "$0" ]]; then
 		file_option=""
 	fi
 fi
 
-
 if [[ ! -f "$routes_file" ]]; then
    	echo>&2 -e "ERROR: route definition file \"$routes_file\" NOT found!"
+
    	exit 1
 fi
 
@@ -98,18 +101,24 @@ if ! $indirect_call_by_route_file; then
 
 	# shellcheck disable=SC1090
 	source -- "$routes_file"
+
 	exit
 fi
 
-__desynchronize_with_configuration "${original_program_arguments[@]}"
+# main
+
+desynchronize_with_configuration "${original_program_arguments[@]}"
 
 #route defaults
+
 filter_rules_file=""
 source_pre_hook=""
 source_post_hook=""
 target_pre_hook=""
 target_post_hook=""
 debug=false
+ignore_arguments=("--file")
+forwardable_parameter="rsync-options"
 
 length=1
 current_line_number=1
@@ -124,7 +133,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	validate=false
 	remote=""
 	forwarded_parameters=()
-	unknown_parameters=()
 	queue_parameters=()
 	flat_structure=false
 	structure_postfix=""
@@ -141,7 +149,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	# shellcheck disable=SC2128
 	eval "set -- $parsed_options"
 	parsed_options=("$@")
-
 	set -- "${original_program_arguments[@]}"
 
 	len=${#parsed_options[@]}
@@ -215,6 +222,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				;;
 			*)
 				echo>&2 "UNKNOWN_PARAM: ${parsed_options[i]}"
+
 				exit 1
 				;;
 		esac
@@ -224,6 +232,15 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	input_not_parsed=()
 	for parameter3 in "${original_program_arguments[@]}"; do
 		name="${parameter3%%=*}"
+		#value="${parameter3#*=}"
+
+		if [[ "--$forwardable_parameter" == "$name" ]]; then
+            if [[ "${name:0:2}" == "--" ]]; then
+            	forwarded_parameters+=( "$parameter3" )
+            	input_not_parsed+=( "$parameter3" )
+            fi
+        fi
+
 		if ! array_contains "$name" "${parsed_options[@]}" && ! array_contains "$name" "${ignore_arguments[@]}"; then
 			input_not_parsed+=( "$parameter3" )
 			if [[ "${parameter3:0:1}" == "-" && "${parameter3:1:1}" != "-" ]]; then
@@ -265,8 +282,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		fi
 		target_post_hook="$(realpath --quiet -- "$target_post_hook")"
     fi
-
-	current_date="$(date +"%d.%m.%Y [%H∶%M:%S]")"
 
 	if [[ "$filter_rules_file" == "" && -f "$route_name.filter-rules" ]]; then
 		filter_rules_file="$route_name.filter-rules"
@@ -310,13 +325,13 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	basename="$(basename -- "$source")"
 
-	if (( ${#unknown_parameters[@]} > 0 )); then
-			echo>&2 "ERROR: unknown parameters: ${1:-}"
-			for queue_configuration_option in "${unknown_parameters[@]}"; do
-				echo>&2 -e "\n *$queue_configuration_option*"
-			done
-		exit 1
-    fi
+	#if (( ${#unknown_parameters[@]} > 0 )); then
+	#		echo>&2 -e "ERROR: unknown parameters:\n"
+	#		for queue_configuration_option in "${unknown_parameters[@]}"; do
+	#			echo>&2 -e "\t* $queue_configuration_option"
+	#		done
+	#	exit 1
+    #fi
 
 	if $debug; then
 		echo -ne "\n\n forwarded_parameters:\n"
@@ -324,10 +339,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			echo -e "\t* $queue_configuration_option2"
 		done
 
-		echo "source_pre_hook: $source_pre_hook"
-		echo "source_post_hook: $source_post_hook"
-		echo "target_pre_hook: $target_pre_hook"
-		echo "target_post_hook: $target_post_hook"
+		[[ -n "$source_pre_hook" ]] && echo "source_pre_hook: $source_pre_hook"
+		[[ -n "$source_post_hook" ]] && echo "source_post_hook: $source_post_hook"
+		[[ -n "$target_pre_hook" ]] && echo "target_pre_hook: $target_pre_hook"
+		[[ -n "$target_post_hook" ]] && echo "target_post_hook: $target_post_hook"
 		echo
 	fi
 
