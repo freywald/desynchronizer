@@ -41,9 +41,9 @@ set -- "${input_parameters[@]}"
 if [[ -z "$file_option" ]]; then
 	readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
 
-    if (( ${#routes_files[@]} == 0 )); then #@todo unclean
-         readarray -t routes_files < <(ls -- "./__desynchronized🖧/"*".desynchronize" 2> "/dev/null")
-    fi
+	if (( ${#routes_files[@]} == 0 )); then #@todo unclean
+		readarray -t routes_files < <(ls -- "./__desynchronized🖧/"*".desynchronize" 2> "/dev/null")
+	fi
 
 	possible_file_option=${1:-}
 	if [[ -n "$possible_file_option" ]]; then
