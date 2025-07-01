@@ -1,7 +1,7 @@
 #!/bin/bash
 
 default_configuration_file="configuration.desynchronized"
-require_directory_format='__🖧desynchronized🖧'
+require_directory_format='__desynchronized🖧'
 
 # end defaults
 
