@@ -53,6 +53,7 @@ if [[ -z "$file_option" ]]; then
 			routes_file="./__desynchronized🖧/$possible_file_option.desynchronize"
 		fi
 
+		#remove current program argument $1 from $original_program_arguments
 		new_array=()
 		index_removed=0
 		for parameter in "${original_program_arguments[@]}"; do
@@ -63,9 +64,9 @@ if [[ -z "$file_option" ]]; then
 			fi
 			new_array+=("$parameter")
 		done
-
 		original_program_arguments=("${new_array[@]}")
 		shift
+
 	elif (( ${#routes_files[@]} == 0 )); then
 		echo>&2 -e "ERROR: No route definition file found! (search expression: *.desynchronize)"
 
@@ -106,7 +107,25 @@ fi
 
 route_name="${routes_file%.*}"
 
+if [[ -n "${1:-}" ]]; then
+	#remove current program argument $1 from $original_program_arguments
+	new_array=()
+	index_removed=0
+	for parameter in "${original_program_arguments[@]}"; do
+		if [[ "${parameter:0:1}" != "-" && "${parameter:1:1}" != "-" && $index_removed == 0 ]]; then
+			index_removed=1
+
+			continue
+		fi
+		new_array+=("$parameter")
+	done
+	original_program_arguments=("${new_array[@]}")
+	original_program_arguments+=("--select-path=$1")
+	shift
+fi
+
 if ! $indirect_call_by_route_file; then
+
 	# shellcheck source=/dev/null
 	set -- "$@" "${original_program_arguments[@]}"
 
@@ -127,7 +146,7 @@ source_pre_hook=""
 source_post_hook=""
 target_pre_hook=""
 target_post_hook=""
-path_postfix=""
+select_path=""
 default_filter_rules_file=""
 debug=false
 ignore_arguments=("--file")
@@ -144,7 +163,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	verbose=false
 	simulate=false
 	validate=false
-	remote=""
 	forwarded_parameters=()
 	queue_parameters=()
 	flat_structure=false
@@ -154,8 +172,9 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		queue_parameters+=("$queue_configuration_option")
 	done
 
+
 	program_arguments="${queue_parameters[*]}"
-	long_options="path-postfix:,simulate,validate,verbose,mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
+	long_options="select-path:,simulate,validate,verbose,mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
 	short_options=":"
 	parsed_options2=$(getopt --options="$short_options" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") || true
 
@@ -214,8 +233,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				target_post_hook="${parsed_options[i+1]}"
 				((i++))
 				;;
-			--path-postfix)
-				path_postfix="${parsed_options[i+1]}"
+			--select-path)
+				select_path="${parsed_options[i+1]}"
 				((i++))
 				;;
 			--verbose)
@@ -344,9 +363,11 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		target_post_hook="$source_post_hook"
     fi
 
-	if [[ -n "$path_postfix" ]]; then
-		source="$source/$path_postfix"
-		target="$target/$path_postfix"
+	root_source="$source"
+	root_target="$target"
+	if [[ -n "$select_path" ]]; then
+		source="$source/$select_path"
+		target="$target/$select_path"
 	fi
 
 	basename="$(basename -- "$source")"
@@ -386,7 +407,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	if $flat_structure; then
 		target="$target$structure_postfix"
 
-		synchronizer_application_data_path="$target/.desynchronizer/$current_date"
+		synchronizer_application_data_path="$root_target/.desynchronizer/$current_date"
 		backup_directory="$synchronizer_application_data_path/backup-files"
 		my_default_log_file="$synchronizer_application_data_path/default.log"
 		error_log_file="$synchronizer_application_data_path/error.log"
@@ -395,18 +416,11 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
 		options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
 	else
-		synchronizer_application_data_path="$target/desynchronizer/$current_date"
+		synchronizer_application_data_path="$root_target/desynchronizer/$current_date"
 		target="$target/files/"
 		backup_directory="$synchronizer_application_data_path/backup-files"
 		my_default_log_file="$synchronizer_application_data_path/default.log"
 		error_log_file="$synchronizer_application_data_path/error.log"
-	fi
-
-	if [[ -n "$remote" ]]; then # @todo atm remote desynchronization is not supported for synchronizer
-		#remote="$remote:$target"
-		remote="$target"
-	else
-		remote="$target"
 	fi
 
 	echo -e "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n"
@@ -442,22 +456,20 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		echo -en "\n\n"
 
 		echo -e "COMPLETE RSYNC SHELL COMMAND LINE STRING:\n"
-		echo -e "\trsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$remote/" "2> $error_log_file"
+		echo -e "\trsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file"
 		echo -ne "\n\n\n"
 		read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
 		nclr 1
 	fi
 
-	rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$remote/" 2> "$error_log_file"
+	rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" 2> "$error_log_file"
 
 	cat -- "$error_log_file"
 
 	if $is_mirror; then
-		if [[ -z "$path_postfix" ]]; then
-			echo >| "$remote/🤍🩵💙 \$desynchronized\$ 💙🩵🤍"
-			echo >| "$remote/💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️"
-			echo >| "$remote/🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡"
-		fi
+		echo >| "$root_target/🤍🩵💙 \$desynchronized\$ 💙🩵🤍"
+		echo >| "$root_target/💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️"
+		echo >| "$root_target/🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡"
 	fi
 
 	[[ -n "$source_post_hook" ]] && (cd -- "$source" && "$source_post_hook" "post" "source")
