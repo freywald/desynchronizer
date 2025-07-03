@@ -1,0 +1,21 @@
+# DEFAULT RULES
+
+exclude 🤍🩵💙 $desynchronized$ 💙🩵🤍
+hide 🤍🩵💙 $desynchronized$ 💙🩵🤍
+protect 🤍🩵💙 $desynchronized$ 💙🩵🤍
+exclude 💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️
+hide 💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️
+protect 💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️
+exclude 🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+hide 🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+protect 🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+
+exclude __IGNORED🖧/
+hide __IGNORED🖧/
+protect __IGNORED🖧/
+
+exclude /lost+found
+hide /lost+found
+protect /lost+found
+
+exclude /.Trash-1000
