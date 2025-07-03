@@ -162,7 +162,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	is_mirror=false
 	verbose=false
 	simulate=false
-	validate=false
+	verify=false
+	ignore_directories=false
 	forwarded_parameters=()
 	queue_parameters=()
 	flat_structure=false
@@ -174,7 +175,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 
 	program_arguments="${queue_parameters[*]}"
-	long_options="select-path:,simulate,validate,verbose,mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
+	long_options="select-path:,simulate,verify,ignore-directories,verbose,mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
 	short_options=":"
 	parsed_options2=$(getopt --options="$short_options" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") || true
 
@@ -240,11 +241,14 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--verbose)
 				verbose=true
 				;;
+			--ignore-directories)
+				ignore_directories=true
+				;;
 			--simulate)
 				simulate=true
 				;;
-			--validate)
-				validate=true
+			--verify)
+				verify=true
 				;;
 			--)
 				if [[ -n "${parsed_options[i+1]:-}" ]]; then
@@ -295,8 +299,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		filter_rules_file="$route_name.filter-rules"
 	fi
 
-	if [[ -f "$__script_path/configuration/default.filter-rules" ]]; then
+	if [[ -z "$select_path" && -f "$__script_path/configuration/default.filter-rules" ]]; then
 		default_filter_rules_file="$__script_path/configuration/default.filter-rules"
+	elif  [[ -n "$select_path" && -f "$__script_path/configuration/default-select-path.filter-rules" ]]; then
+		default_filter_rules_file="$__script_path/configuration/default-select-path.filter-rules"
 	fi
 
 	if [[ -n "$source_pre_hook" ]]; then
@@ -443,10 +449,16 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		$debug && echo "SIMULATE ON"
 		custom_options+=("--dry-run")
 	fi
-	if $validate; then
+	if $verify; then
 		$debug && echo "VALIDATE ON"
 		custom_options+=("--checksum")
 	fi
+	if $ignore_directories; then
+    	$debug && echo "IGNORE DIRECTORIES ON"
+		custom_options+=(--exclude='__IGNORED🖧/')
+    	custom_options+=(--filter='hide __IGNORED🖧/')
+    	custom_options+=(--filter='protect __IGNORED🖧/')
+    fi
 
 	if $verbose; then
 		echo -en "ROUTE CONFIGURATION:\n\n"
