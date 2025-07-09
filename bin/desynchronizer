@@ -6,11 +6,11 @@
 
 file_option=""
 
-long_options="file:"
+long_options="route-configuration-file:"
 short_options=":"
 original_program_arguments=("$@")
 parsed_options2=$(getopt --options="$short_options" --longoptions="$long_options" --name "$0" -- "$@") || true
-eval "set --  $parsed_options2"
+eval "set -- $parsed_options2"
 parsed_options=("$@")
 set -- "${original_program_arguments[@]}"
 
@@ -19,8 +19,8 @@ len=${#parsed_options[@]}
 i=0
 while (( i<len )); do
 	case "${parsed_options[i]}" in
-		--file)
-			file_option="${parsed_options[i+1]}"
+		--route-configuration-file)
+			route_configuration_file_argument="${parsed_options[i+1]}"
 			indirect_call_by_route_file=true
 			((i++))
 			;;
@@ -38,19 +38,19 @@ set -- "${input_parameters[@]}"
 
 # evaluate arguments
 
-if [[ -z "$file_option" ]]; then
+if [[ -z "$route_configuration_file_argument" ]]; then
 	readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
 
 	if (( ${#routes_files[@]} == 0 )); then #@todo unclean
 		readarray -t routes_files < <(ls -- "./__desynchronized🖧/"*".desynchronize" 2> "/dev/null")
 	fi
 
-	possible_file_option=${1:-}
-	if [[ -n "$possible_file_option" ]]; then
-		if [[ -f "$file_option" ]]; then  #@todo unclean
-			routes_file="$possible_file_option.desynchronize"
+	possible_route_configuration_file_argument=${1:-}
+	if [[ -n "$possible_route_configuration_file_argument" ]]; then
+		if [[ -f "$route_configuration_file_argument" ]]; then #@todo unclean
+			routes_file="$possible_route_configuration_file_argument.desynchronize"
 		else
-			routes_file="./__desynchronized🖧/$possible_file_option.desynchronize"
+			routes_file="./__desynchronized🖧/$possible_route_configuration_file_argument.desynchronize"
 		fi
 
 		#remove current program argument $1 from $original_program_arguments
@@ -91,18 +91,18 @@ else
 	routes_files=()
 
 	if $indirect_call_by_route_file; then
-		if [[ $file_option == "$0" ]]; then
-			file_option=""
+		if [[ $route_configuration_file_argument == "$0" ]]; then
+			route_configuration_file_argument=""
 		else
-			routes_file="$file_option"
+			routes_file="$route_configuration_file_argument"
 		fi
 	fi
 fi
 
 if [[ ! -f "$routes_file" ]]; then
-   	echo>&2 -e "ERROR: route definition file \"$routes_file\" NOT found!"
+	echo>&2 -e "ERROR: route definition file \"$routes_file\" NOT found!"
 
-   	exit 1
+	exit 1
 fi
 
 route_name="${routes_file%.*}"
@@ -149,7 +149,7 @@ target_post_hook=""
 select_path=""
 default_filter_rules_file=""
 debug=false
-ignore_arguments=("--file")
+ignore_arguments=("--route-configuration-file")
 forwardable_parameter="rsync-options"
 
 length=1
@@ -160,6 +160,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	wideness="${queue_configuration_options_wideness[r]}"
 
 	is_mirror=false
+	is_flat_mirror=false
 	verbose=false
 	simulate=false
 	verify=false
@@ -173,9 +174,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		queue_parameters+=("$queue_configuration_option")
 	done
 
-
 	program_arguments="${queue_parameters[*]}"
-	long_options="select-path:,simulate,verify,ignore-directories,verbose,mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
+	long_options="select-path:,simulate,verify,ignore-directories,verbose,mirror,flat-mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
 	short_options=":"
 	parsed_options2=$(getopt --options="$short_options" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") || true
 
@@ -192,6 +192,12 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				flat_structure=true
 				structure_postfix=""
 				is_mirror=true
+				;;
+			--flat-mirror)
+				flat_structure=true
+				structure_postfix=""
+				is_mirror=true
+				is_flat_mirror=true
 				;;
 			--flat)
 				flat_structure=true
@@ -275,11 +281,11 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		#value="${parameter3#*=}"
 
 		if [[ "--$forwardable_parameter" == "$name" ]]; then
-            if [[ "${name:0:2}" == "--" ]]; then
-            	forwarded_parameters+=( "$parameter3" )
-            	input_not_parsed+=( "$parameter3" )
-            fi
-        fi
+			if [[ "${name:0:2}" == "--" ]]; then
+				forwarded_parameters+=( "$parameter3" )
+				input_not_parsed+=( "$parameter3" )
+			fi
+		fi
 
 		if ! array_contains "$name" "${parsed_options[@]}" && ! array_contains "$name" "${ignore_arguments[@]}"; then
 			input_not_parsed+=( "$parameter3" )
@@ -301,7 +307,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	if [[ -z "$select_path" && -f "$__script_path/configuration/default.filter-rules" ]]; then
 		default_filter_rules_file="$__script_path/configuration/default.filter-rules"
-	elif  [[ -n "$select_path" && -f "$__script_path/configuration/default-select-path.filter-rules" ]]; then
+	elif [[ -n "$select_path" && -f "$__script_path/configuration/default-select-path.filter-rules" ]]; then
 		default_filter_rules_file="$__script_path/configuration/default-select-path.filter-rules"
 	fi
 
@@ -309,7 +315,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		if [[ "${source_pre_hook:0:1}" != "/" ]]; then
 			source_pre_hook="$source/$source_pre_hook"
 		fi
-   		source_pre_hook="$(realpath --quiet -- "$source_pre_hook")"
+		source_pre_hook="$(realpath --quiet -- "$source_pre_hook")"
 	fi
 
 	if [[ -n "$source_post_hook" ]]; then
@@ -320,10 +326,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	fi
 
 	if [[ -n "$target_pre_hook" ]]; then
-		 if [[ "${target_pre_hook:0:1}" != "/" ]]; then
-			  target_pre_hook="$target/$target_pre_hook"
+		if [[ "${target_pre_hook:0:1}" != "/" ]]; then
+			target_pre_hook="$target/$target_pre_hook"
 		fi
-   		target_pre_hook="$(realpath --quiet -- "$target_pre_hook")"
+		target_pre_hook="$(realpath --quiet -- "$target_pre_hook")"
 	fi
 
 	if [[ -n "$target_post_hook" ]]; then
@@ -331,34 +337,34 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			target_post_hook="$target/$target_post_hook"
 		fi
 		target_post_hook="$(realpath --quiet -- "$target_post_hook")"
-    fi
+	fi
 
-    if [[ -n "$source_pre_hook" ]]; then
-    	if [[ "${source_pre_hook:0:1}" != "/" ]]; then
-            source_pre_hook="$source/$source_pre_hook"
-        fi
-   		source_pre_hook="$(realpath --quiet -- "$source_pre_hook")"
-    fi
+	if [[ -n "$source_pre_hook" ]]; then
+		if [[ "${source_pre_hook:0:1}" != "/" ]]; then
+			source_pre_hook="$source/$source_pre_hook"
+		fi
+		source_pre_hook="$(realpath --quiet -- "$source_pre_hook")"
+	fi
 
-    if [[ -n "$source_post_hook" ]]; then
-    	if [[ "${source_post_hook:0:1}" != "/" ]]; then
-            source_post_hook="$source/$source_post_hook"
-        fi
-    	source_post_hook="$(realpath --quiet -- "$source_post_hook")"
-    fi
+	if [[ -n "$source_post_hook" ]]; then
+		if [[ "${source_post_hook:0:1}" != "/" ]]; then
+			source_post_hook="$source/$source_post_hook"
+		fi
+		source_post_hook="$(realpath --quiet -- "$source_post_hook")"
+	fi
 
-    if [[ -n "$target_pre_hook" ]]; then
-    	 if [[ "${target_pre_hook:0:1}" != "/" ]]; then
-              target_pre_hook="$target/$target_pre_hook"
-        fi
-   		target_pre_hook="$(realpath --quiet -- "$target_pre_hook")"
-    fi
+	if [[ -n "$target_pre_hook" ]]; then
+		if [[ "${target_pre_hook:0:1}" != "/" ]]; then
+			target_pre_hook="$target/$target_pre_hook"
+		fi
+		target_pre_hook="$(realpath --quiet -- "$target_pre_hook")"
+	fi
 
-    if [[ -n "$target_post_hook" ]]; then
-    	if [[ "${target_post_hook:0:1}" != "/" ]]; then
-        	target_post_hook="$target/$target_post_hook"
-        fi
-    	target_post_hook="$(realpath --quiet -- "$target_post_hook")"
+	if [[ -n "$target_post_hook" ]]; then
+		if [[ "${target_post_hook:0:1}" != "/" ]]; then
+			target_post_hook="$target/$target_post_hook"
+		fi
+		target_post_hook="$(realpath --quiet -- "$target_post_hook")"
 	fi
 
 	if [[ -z "$target_pre_hook" ]]; then
@@ -367,7 +373,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	if [[ -z "$target_post_hook" ]]; then
 		target_post_hook="$source_post_hook"
-    fi
+	fi
 
 	root_source="$source"
 	root_target="$target"
@@ -384,7 +390,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	#			echo>&2 -e "\t* $queue_configuration_option"
 	#		done
 	#	exit 1
-    #fi
+	#fi
 
 	if $debug; then
 		echo -ne "\n\n forwarded_parameters:\n"
@@ -403,31 +409,31 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	if [[ -n "$default_filter_rules_file" ]]; then
 		custom_options+=(--filter="merge $default_filter_rules_file")
-    fi
+	fi
 
 	if [[ -n "$filter_rules_file" ]]; then
 		custom_options+=(--filter="merge $filter_rules_file")
-    fi
+	fi
 
 	options_that_take_precedence_last=()
 	if $flat_structure; then
 		target="$target$structure_postfix"
-
-		synchronizer_application_data_path="$root_target/.desynchronizer/$current_date"
-		backup_directory="$synchronizer_application_data_path/backup-files"
-		my_default_log_file="$synchronizer_application_data_path/default.log"
-		error_log_file="$synchronizer_application_data_path/error.log"
-
-		options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
-		options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
-		options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+		if $is_flat_mirror; then
+			synchronizer_application_data_path="$root_target/.desynchronizer/$current_date"
+			options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
+			options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+			options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+		else
+			synchronizer_application_data_path="$root_target/../$basename.desynchronizer/$current_date"
+		fi
 	else
 		synchronizer_application_data_path="$root_target/desynchronizer/$current_date"
 		target="$target/files/"
-		backup_directory="$synchronizer_application_data_path/backup-files"
-		my_default_log_file="$synchronizer_application_data_path/default.log"
-		error_log_file="$synchronizer_application_data_path/error.log"
 	fi
+
+	backup_directory="$synchronizer_application_data_path/backup-files"
+	my_default_log_file="$synchronizer_application_data_path/default.log"
+	error_log_file="$synchronizer_application_data_path/error.log"
 
 	echo -e "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n"
 	echo -e "DESYNCHRONIZING '$basename'\n"
@@ -442,8 +448,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	mkdir --parents -- "$synchronizer_application_data_path/backup-files" || exit 1
 
-	[[ -n "$source_pre_hook" ]] && (cd -- "$source" && "$source_pre_hook" "pre" "source")
-	[[ -n "$target_pre_hook" ]] && (cd -- "$target" && "$target_pre_hook" "pre" "target")
+	[[ -n "$source_pre_hook" ]] && (cd -- "$source" && "$source_pre_hook" "pre" "source" "$simulate" )
+	[[ -n "$target_pre_hook" ]] && (cd -- "$target" && "$target_pre_hook" "pre" "target" "$simulate" )
 
 	if $simulate; then
 		$debug && echo "SIMULATE ON"
@@ -454,11 +460,11 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		custom_options+=("--checksum")
 	fi
 	if $ignore_directories; then
-    	$debug && echo "IGNORE DIRECTORIES ON"
+		$debug && echo "IGNORE DIRECTORIES ON"
 		custom_options+=(--exclude='__IGNORED🖧/')
-    	custom_options+=(--filter='hide __IGNORED🖧/')
-    	custom_options+=(--filter='protect __IGNORED🖧/')
-    fi
+		custom_options+=(--filter='hide __IGNORED🖧/')
+		custom_options+=(--filter='protect __IGNORED🖧/')
+	fi
 
 	if $verbose; then
 		echo -en "ROUTE CONFIGURATION:\n\n"
@@ -479,13 +485,15 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	cat -- "$error_log_file"
 
 	if $is_mirror; then
-		echo >| "$root_target/🤍🩵💙 \$desynchronized\$ 💙🩵🤍"
-		echo >| "$root_target/💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️"
-		echo >| "$root_target/🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡"
+		if ! $simulate; then
+			echo >| "$root_target/🤍🩵💙 \$desynchronized\$ 💙🩵🤍"
+			echo >| "$root_target/💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️"
+			echo >| "$root_target/🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡"
+		fi
 	fi
 
-	[[ -n "$source_post_hook" ]] && (cd -- "$source" && "$source_post_hook" "post" "source")
-	[[ -n "$target_post_hook" ]] && (cd -- "$target" && "$target_post_hook" "post" "target")
+	[[ -n "$source_post_hook" ]] && (cd -- "$source" && "$source_post_hook" "post" "source" "$simulate" )
+	[[ -n "$target_post_hook" ]] && (cd -- "$target" && "$target_post_hook" "post" "target" "$simulate" )
 
 	[[ -d "$synchronizer_application_data_path/backup-files" && -z "$(ls -1qA -- "$synchronizer_application_data_path/backup-files" 2>"/dev/null")" ]] && rmdir -- "$synchronizer_application_data_path/backup-files"
 	[[ -f "$my_default_log_file" && ! -s "$my_default_log_file" ]] && rm -- "$my_default_log_file"
