@@ -22,6 +22,7 @@ while (( i<len )); do
 		--route-configuration-file)
 			route_configuration_file_argument="${parsed_options[i+1]}"
 			indirect_call_by_route_file=true
+			original_program_arguments+=("--cli")
 			((i++))
 			;;
 		--)
