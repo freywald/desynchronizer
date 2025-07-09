@@ -4,7 +4,7 @@
 
 # parse arguments
 
-file_option=""
+route_configuration_file_argument=""
 
 long_options="route-configuration-file:"
 short_options=":"
@@ -159,6 +159,7 @@ cursor=0
 for (( r = 0; r < queue_configuration_options_count; r++)); do
 	wideness="${queue_configuration_options_wideness[r]}"
 
+	is_CLI=true
 	is_mirror=false
 	is_flat_mirror=false
 	verbose=false
@@ -175,7 +176,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	done
 
 	program_arguments="${queue_parameters[*]}"
-	long_options="select-path:,simulate,verify,ignore-directories,verbose,mirror,flat-mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
+	long_options="select-path:,cli,simulate,verify,ignore-directories,verbose,mirror,flat-mirror,flat,non-flat,flat-postfix:,source:,target:,description:,source-pre-hook:,source-post-hook:,target-pre-hook:,target-post-hook:"
 	short_options=":"
 	parsed_options2=$(getopt --options="$short_options" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") || true
 
@@ -243,6 +244,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--select-path)
 				select_path="${parsed_options[i+1]}"
 				((i++))
+				;;
+			--cli)
+				verbose=true
+				is_cli=true
 				;;
 			--verbose)
 				verbose=true
