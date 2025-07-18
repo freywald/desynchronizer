@@ -27,6 +27,32 @@ Now that time has come.
 Most countries in the world have enshrined the right to data autonomy in law.
 Scientists have asked files and files replied. Files approve of safe desynchronization of file system hierarchies instead of the former approbated use of DEL key which organizes and reorganizes files unproper.*
 
+## program argument documentation
+
+* --create-archive
+    * the whole directory tree is immutable
+    * structure
+      desynchronizer: TARGET/Home.desynchronizer/
+      SOURCE ➡ TARGET/Home.desynchronized.archive/ 
+
+* --create-compact-archive
+    * same as --create-archive
+    * structure
+      desynchronizer: TARGET/Home.desynchronizer/
+      SOURCE ➡ TARGET/Home.desynchronized.compact-archive/ 
+
+* --create-mirror
+    * directory tree is mutable, but the notification files indicate it shall not be used
+    * structure
+      desynchronizer: TARGET/Home.desynchronizer/
+      SOURCE ➡ TARGET/Home.desynchronized.mirror/ 
+
+* --create-copy
+    * simple rsync copy
+    * structure
+      desynchronizer: TARGET/Home/desynchronizer/
+      SOURCE ➡ TARGET/Home/files/
+
 ## Installation
 
 1. Please execute the following shell command in your shell.

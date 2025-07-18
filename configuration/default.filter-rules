@@ -5,12 +5,18 @@
 exclude /🤍🩵💙 $desynchronized$ 💙🩵🤍
 hide /🤍🩵💙 $desynchronized$ 💙🩵🤍
 protect /🤍🩵💙 $desynchronized$ 💙🩵🤍
+
 exclude /💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️
 hide /💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️
 protect /💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️
+
 exclude /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
 hide /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
 protect /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+
+exclude /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S AN ARCHIVE. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+hide /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S AN ARCHIVE. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+protect /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S AN ARCHIVE. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
 
 ## allow only the root ignore-directory always. If program argument --ignore-directories is used, subdirectories named "__IGNORED🖧" are excluded as well.
 
