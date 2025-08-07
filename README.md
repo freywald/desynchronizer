@@ -1,4 +1,6 @@
-# desynchronizer
+# dyd-desynchronizer
+
+<img src="https://github.com/freywald/desynchronizer/blob/master/dyd-logo.svg" width="256">
 
 A frontend for rsync – for you and me.
 
@@ -35,7 +37,7 @@ Scientists have asked files and files replied. Files approve of safe desynchroni
       desynchronizer: TARGET/Home.desynchronizer/
       SOURCE ➡ TARGET/Home.desynchronized.archive/ 
 
-* --create-compact-archive
+* --create-archive --compact-format
     * same as --create-archive
     * structure
       desynchronizer: TARGET/Home.desynchronizer/
@@ -45,7 +47,9 @@ Scientists have asked files and files replied. Files approve of safe desynchroni
     * directory tree is mutable, but the notification files indicate it shall not be used
     * structure
       desynchronizer: TARGET/Home.desynchronizer/
-      SOURCE ➡ TARGET/Home.desynchronized.mirror/ 
+      SOURCE ➡ TARGET/Home.desynchronized.mirror/
+   
+* --create-mirror --compact-format
 
 * --create-copy
     * simple rsync copy
@@ -53,6 +57,8 @@ Scientists have asked files and files replied. Files approve of safe desynchroni
       desynchronizer: TARGET/Home/desynchronizer/
       SOURCE ➡ TARGET/Home/files/
 
+* --create-copy --compact-format
+      
 ## Installation
 
 1. Please execute the following shell command in your shell.
