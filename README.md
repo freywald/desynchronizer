@@ -10,7 +10,7 @@ Also:
 
 > » A dūd is a person with a record of failing; someone who loses consistently. «[^1]
 
-[^1]: https://www.vocabulary.com/dictionary/dud
+[^1]: "Dud" Vocabulary.com Dictionary, Vocabulary.com, https://vocabulary.com/dictionary/dud. Accessed 07 Aug. 2025.
 
 Synchronize all your files *easily, safe and proper* — the principle: synchronize *by desynchronizing*, disorganize by reorganizing.
 
