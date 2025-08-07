@@ -1,20 +1,18 @@
-# dūd-desynchronizer
+# dyd-desynchronizer
 
 <img src="https://github.com/freywald/desynchronizer/blob/master/dyd-logo.svg" width="256"><sub>CC BY-SA 4.0</sub>
 
 A frontend for rsync – for you and me – for dūds.
 
-> » Something that doesn't work the way it's supposed to is a <ins>dūd</ins>. «[^1]
+Synchronize all your files *easily, safe and proper* — the principle: synchronize *by desynchronizing*, disorganize by reorganizing.
 
-Also:
+Desynchronize and reorganize your files confidently with **desynchronizer**. Lose track. Despair. Wipe away distracting thoughts. Abort erasure.
 
-> » A dūd is a person with a record of failing; someone who loses consistently. «[^1]
+» Something that doesn't work the way it's supposed to is a <ins>dūd</ins>. «[^1]
+Also: » A dūd is a person with a record of failing; someone who loses consistently. «[^1]
 
 [^1]: "Dud" Vocabulary.com Dictionary, Vocabulary.com, https://vocabulary.com/dictionary/dud. Accessed 07 Aug. 2025.
 
-Synchronize all your files *easily, safe and proper* — the principle: synchronize *by desynchronizing*, disorganize by reorganizing.
-
-Desynchronize and reorganize your files confidently with **desynchronizer**. Lose track. Despair. Wipe away bad thoughts. Abort erasure.
 
 > Always remove trash-worthy files with the conviction that it's for the better. Stop caring so much for data, but never cause bitrot on disks by sending out a forging hammer cutting through your bit space — be nice, let the platters keep spinning! They're made for it — (but we're not).
 >
