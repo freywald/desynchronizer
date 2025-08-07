@@ -1,6 +1,6 @@
 # dyd-desynchronizer
 
-<img src="https://github.com/freywald/desynchronizer/blob/master/dyd-logo.svg" width="256">
+<img src="https://github.com/freywald/desynchronizer/blob/master/dyd-logo.svg" width="256"><sub>CC BY-SA 4.0</sub>
 
 A frontend for rsync – for you and me.
 
