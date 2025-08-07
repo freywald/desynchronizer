@@ -6,9 +6,9 @@ A frontend for rsync – for you and me – for dūds.
 
 > » Something that doesn't work the way it's supposed to is a <ins>dūd</ins>. «[^1]
 
-*Also:*
+Also:
 
-> » a dūd is a person with a record of failing; someone who loses consistently. «[^1]
+> » A dūd is a person with a record of failing; someone who loses consistently. «[^1]
 
 [^1]: https://www.vocabulary.com/dictionary/dud
 
