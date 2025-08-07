@@ -2,11 +2,11 @@
 
 <img src="https://github.com/freywald/desynchronizer/blob/master/dyd-logo.svg" width="256"><sub>CC BY-SA 4.0</sub>
 
-> » Something that doesn't work the way it's supposed to is a <ins>dud</ins> «.[^1]
+> » Something that doesn't work the way it's supposed to is a <ins>dūd</ins> «.[^1]
 
 [^1]: https://www.vocabulary.com/dictionary/dud
 
-A frontend for rsync – for you and me …and duds.
+A frontend for rsync – for you and me – for dūds.
 
 Synchronize all your files *easily, safe and proper* — the principle: synchronize *by desynchronizing*, disorganize by reorganizing.
 
