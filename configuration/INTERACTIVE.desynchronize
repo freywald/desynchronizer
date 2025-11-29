@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# run desynchronizer with these options:
+
+desynchronizer --route-configuration-file="${BASH_SOURCE[0]}" "$@" \
+--create-copy="COPY" \
+--output-variable-route-description="INTERACTIVE/Creates an archive of the Daten directory." \
+--output-variable-directory-name="INTERACTIVE/Daten directory" \
+--output-variable-target-device-description="INTERACTIVE/external USB-C device Samsung PSSD T9 4TB SSD" \

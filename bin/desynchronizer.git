@@ -1,0 +1,66 @@
+#!/bin/bash
+
+default_configuration_file="configuration.desynchronized"
+require_directory_format='__desynchronized🖧'
+
+# end defaults
+
+# @todo test with midi & /home/ju/Daten1/Media/Persönlich/Projekte/__🖧desynchronized🖧
+
+
+
+
+
+
+
+
+
+
+set -x
+
+echo "CALLED @$(date +%Y%m%d%H%M%S)" >> ~/CRON-CALLS.log
+
+function set_script_path()
+{
+	local former_directory
+	former_directory="$(pwd)"
+
+	local source="${BASH_SOURCE[-1]}"
+	while [[ -L "$source" ]]; do # resolve $source until the file is no longer a symlink
+		local directory
+		directory="$(cd -P "$(dirname -- "$source")" > "/dev/null" 2>&1 && pwd)"
+		source="$(readlink -- "$source")"
+		[[ "$source" != /* ]] && source="$directory/$source" # if $source was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+	done
+
+	__script_path="$(cd -P "$(dirname -- "$source")" > "/dev/null" 2>&1 && pwd)"
+	cd -- "$former_directory" || exit 1
+
+	export __script_path
+}
+
+set_script_path
+cd -- "$__script_path/../" || exit 1
+
+[[ ! -d ".git" ]] && echo ".git does not exist" && exit 1
+
+[[ -z "$(git status -uno -u --porcelain)" ]] && echo "this branch is clean, no need to push…" && exit 0
+
+git config --global pull.rebase true
+git checkout master
+git fetch
+git rebase origin/master
+
+if git add --all; then
+	if git commit --allow-empty-message -m ''; then #@todo auto git message format "desynchronization @ 23:01:07 successful"
+		if git push -u origin master; then
+			echo "done"
+		else
+			echo>&2 "Error: push failed!"
+		fi
+	else
+		echo>&2 "Error: commit failed!"
+	fi
+else
+	echo>&2 "Error: git add failed!"
+fi

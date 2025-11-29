@@ -5,6 +5,9 @@ require_directory_format='__desynchronized🖧'
 
 # end defaults
 
+target_server=""
+target_pathname=""
+
 function get_real_path()
 {
 	local former_directory
@@ -51,18 +54,38 @@ if [[ ! -f "$configuration_file" ]]; then
 	exit 1
 fi
 
+checksum=" --checksum "
+path_spec=""
+simulate=""
+
+if [[ -n "${1:-}" ]]; then
+	path_spec="$1"
+fi
+shift 1
+
+while [[ -n "${1:-}" ]]; do
+	if [[ "$1" == "--simulate" ]]; then
+		simulate=" --dry-run --verbose "
+	elif [[ "$1" == "--fast" ]]; then
+		checksum=""
+	fi
+
+	shift 1
+done
+
 # shellcheck disable=SC1090
 source -- "$configuration_file"
 
 function desynchronize_with_rclone {
 	source_path="$1"
 	target_directory="$2"
-	
+
 	echo -ne "Syncing $source_path?\n\n"
-	echo -ne rclone sync --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --check-first --update --track-renames --metadata "$source_path" "$target_server":/"$target_pathname/$target_directory\n\n"
-	read -r -p "Press enter to continue…"
-	
-	rclone sync --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --check-first --update --track-renames --metadata "$source_path" "$target_server":/"$target_pathname/$target_directory"
+	echo -ne "rclone sync $simulate --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress $checksum --ignore-size --check-first --update --track-renames --metadata $source_path $target_server:/$target_pathname/$target_directory\n\n"
+	read -n1 -r -p "Press the 'y' key to continue…" "decision"
+	if [[ "$decision" == "y" ]]; then
+		rclone sync $simulate --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress $checksum --ignore-size --check-first --update --track-renames --metadata "$source_path" "$target_server:/$target_pathname/$target_directory"
+	fi
 }
 
 for directory in *; do
@@ -72,8 +95,9 @@ for directory in *; do
 
 	directory_name="$(basename -- "$directory")"
 	[[ "$directory_name" == "bin" ]] && continue
+	directory_name="${directory_name//./\/}"
 
-	source_directory="$(get_real_path "$current_directory/$directory")"
-	desynchronize_with_rclone "$source_directory" "$directory_name"
+	source_directory="$(get_real_path "$current_directory/$directory/$path_spec")"
+	desynchronize_with_rclone "$source_directory" "$directory_name/$path_spec"
 done
 

@@ -6,7 +6,7 @@
 
 route_configuration_file_argument=""
 
-long_options="route-configuration-file:"
+long_options="route-configuration-file:,interactive"
 original_program_arguments=("$@")
 parsed_options2=$(getopt --options=":" --longoptions="$long_options" --name "$0" -- "$@") || true
 
@@ -14,6 +14,8 @@ eval "set -- $parsed_options2"
 parsed_options=("$@")
 set -- "${original_program_arguments[@]}"
 
+interactive=false
+find_route=true
 input_parameters=()
 len=${#parsed_options[@]}
 i=0
@@ -23,6 +25,11 @@ while (( i<len )); do
 			route_configuration_file_argument="${parsed_options[i+1]}"
 			indirect_call_by_route_file=true
 			((i++))
+			;;
+		--interactive)
+			routes_file="$__script_path/configuration/INTERACTIVE.desynchronize"
+			find_route=false
+			interactive=true
 			;;
 		--)
 			;;
@@ -38,65 +45,71 @@ set -- "${input_parameters[@]}"
 
 # evaluate arguments
 
-if [[ -z "$route_configuration_file_argument" ]]; then
-	readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
+if $find_route; then
+	if [[ -z "$route_configuration_file_argument" ]]; then
+		readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
 
-	if (( ${#routes_files[@]} == 0 )); then #@todo unclean
-		readarray -t routes_files < <(ls -- "./__desynchronized🖧/"*".desynchronize" 2> "/dev/null")
-	fi
-
-	possible_route_configuration_file_argument=${1:-}
-	if [[ -n "$possible_route_configuration_file_argument" ]]; then
-		if [[ -f "$route_configuration_file_argument" ]]; then #@todo unclean
-			routes_file="$possible_route_configuration_file_argument.desynchronize"
-		else
-			routes_file="./__desynchronized🖧/$possible_route_configuration_file_argument.desynchronize"
+		if (( ${#routes_files[@]} == 0 )); then #@todo unclean
+			readarray -t routes_files < <(ls -- "./__desynchronized🖧/"*".desynchronize" 2> "/dev/null")
 		fi
 
-		#remove current program argument $1 from $original_program_arguments
-		new_array=()
-		index_removed=0
-		for parameter in "${original_program_arguments[@]}"; do
-			if [[ "${parameter:0:1}" != "-" && "${parameter:1:1}" != "-" && $index_removed == 0 ]]; then
-				index_removed=1
-
-				continue
+		possible_route_configuration_file_argument=${1:-}
+		if [[ -n "$possible_route_configuration_file_argument" ]]; then
+			if [[ -f "$route_configuration_file_argument" ]]; then #@todo unclean
+				routes_file="$possible_route_configuration_file_argument.desynchronize"
+			else
+				routes_file="./__desynchronized🖧/$possible_route_configuration_file_argument.desynchronize"
 			fi
-			new_array+=("$parameter")
-		done
 
-		original_program_arguments=("${new_array[@]}")
-		original_program_arguments+=("--non-cli")
-		shift
-	elif (( ${#routes_files[@]} == 0 )); then
-		echo>&2 -e "ERROR: No route definition file found! (search expression: *.desynchronize)"
+			#remove current program argument $1 from $original_program_arguments
+			new_array=()
+			index_removed=0
+			for parameter in "${original_program_arguments[@]}"; do
+				if [[ "${parameter:0:1}" != "-" && "${parameter:1:1}" != "-" && $index_removed == 0 ]]; then
+					index_removed=1
 
-		exit 1
-	elif (( ${#routes_files[@]} > 1 )); then
-		PS3="Which route file shall be used?"
-
-		select name in "${routes_files[@]}"; do
-			for reply in $REPLY; do
-				if [[ "$reply" =~ ^[1-9]+[0-9]*$ ]]; then
-					routes_file="${routes_files[reply-1]}"
-					if [[ -n "$routes_file" ]]; then
-						 break 2
-					fi
+					continue
 				fi
+				new_array+=("$parameter")
 			done
-		done
-	else
-		routes_file="${routes_files[0]}"
-	fi
-	original_program_arguments+=("--non-cli")
-else
-	routes_files=()
 
-	if $indirect_call_by_route_file; then
-		if [[ $route_configuration_file_argument == "$0" ]]; then
-			route_configuration_file_argument=""
+			original_program_arguments=("${new_array[@]}")
+			original_program_arguments+=("--non-cli")
+			shift
+		elif (( ${#routes_files[@]} == 0 )); then
+			echo>&2 -e "ERROR: No route definition file found! (search expression: *.desynchronize)"
+
+			exit 1
+		elif (( ${#routes_files[@]} > 1 )); then
+			PS3="Which route file shall be used?"
+
+			select name in "${routes_files[@]}"; do
+				for reply in $REPLY; do
+					if [[ "$reply" =~ ^[1-9]+[0-9]*$ ]]; then
+						if (( ${#routes_files[@]} <= reply-1 )); then
+							continue
+						fi
+
+						routes_file="${routes_files[reply-1]}"
+						if [[ -n "$routes_file" ]]; then
+							 break 2
+						fi
+					fi
+				done
+			done
 		else
-			routes_file="$route_configuration_file_argument"
+			routes_file="${routes_files[0]}"
+		fi
+
+		original_program_arguments+=("--non-cli")
+	else
+		routes_files=()
+		if $indirect_call_by_route_file; then
+			if [[ $route_configuration_file_argument == "$0" ]]; then
+				route_configuration_file_argument=""
+			else
+				routes_file="$route_configuration_file_argument"
+			fi
 		fi
 	fi
 fi
@@ -128,7 +141,6 @@ if [[ -n "${1:-}" ]]; then
 fi
 
 if ! $indirect_call_by_route_file; then
-
 	# shellcheck source=/dev/null
 	set -- "$@" "${original_program_arguments[@]}"
 
@@ -173,6 +185,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	is_copy=false
 	is_archive=false
 	target_directory_name=""
+	source=""
+	target=""
 	is_compact_format=false
 	verbose=false
 	simulate=false
@@ -200,7 +214,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		case "${parsed_options[i]}" in
 			--create-archive)
 				is_archive=true
-				apply_seal=true
+				# apply_seal=true
 				#structure_postfix=".desynchronized.archive"
 				target_directory_name="${parsed_options[i+1]}"
 				if [[ -z "$target_directory_name" ]]; then
@@ -373,7 +387,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			if [[ "${argument:0:1}" == "-" && "${argument:1:1}" != "-" ]]; then
 				forwarded_parameters+=( "$argument" )
 			else
-				input_not_parsed+=( "$argument" )
+				#input_not_parsed+=( "$argument" )
+				forwarded_parameters+=( "$argument" )
 			fi
 			not_done=false
 		fi
@@ -387,6 +402,34 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		exit 1
 	fi
 
+	interactive_data_user_confirmed=false
+
+	while ! $interactive_data_user_confirmed; do
+		while [[ -z "$source" ]]; do
+			interactive=true
+			read -rp "Enter source: " "source"
+			[[ -n "$source" ]] && break
+		done
+
+		while [[ -z "$target" ]]; do
+			interactive=true
+			read -rp "Enter target: " "target"
+			[[ -n "$source" ]] && break
+		done
+
+		if $interactive; then
+			echo "Source: $source"
+			echo "Target: $target"
+
+			read -p "Is this correct? (Y/N): " "confirm"
+			[[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]] && break
+			source=""
+			target=""
+		else
+			break
+		fi
+	done
+
 	if $is_cli; then
 		show_banner=true
 		show_more=false
@@ -396,7 +439,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		show_more=true
 	fi
 
-	current_date="$(date +"%d.%m.%Y [%H∶%M:%S]")"
+	current_date="$(date +"%d.%m.%Y [%H∶%M∶%S]")"
 
 	if [[ "$filter_rules_file" == "" && -f "$__current_directory/$route_name.filter-rules" ]]; then
 		filter_rules_file="$route_name.filter-rules"
@@ -659,11 +702,14 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 		read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
 		nclr 0
-	fi
-
-	if $is_cli && ! $verbose; then
-		read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
-		nclr 0
+	else
+		if $is_cli; then
+			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
+			nclr 0
+		else
+			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
+			nclr 0
+        fi
 	fi
 
 	if ! $simulate && $apply_seal; then
@@ -680,7 +726,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	[[ -n "$source_pre_hook" ]] && (cd -- "$source" && "$source_pre_hook" "pre" "source" "$simulate" )
 	[[ -n "$target_pre_hook" ]] && (cd -- "$target" && "$target_pre_hook" "pre" "target" "$simulate" )
-
+	echo -e "rsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file" > "$synchronizer_application_data_path/CMD"
+	# --max-alloc=5g
 	rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" 2> "$error_log_file"
 
 	cat -- "$error_log_file"
