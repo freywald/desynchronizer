@@ -4,27 +4,34 @@
 
 # parse arguments
 
-route_configuration_file_argument=""
-
-long_options="route-configuration-file:,interactive"
+long_options="route-configuration-file:,interactive,transport::"
 original_program_arguments=("$@")
-parsed_options2=$(getopt --options=":" --longoptions="$long_options" --name "$0" -- "$@") || true
+parsed_options2=$(getopt --options=":" --longoptions="$long_options" --name "$0" -- "$@") ||:
 
 eval "set -- $parsed_options2"
 parsed_options=("$@")
 set -- "${original_program_arguments[@]}"
 
+route_configuration_file_argument=""
 interactive=false
+target_backup_directory_path="backup-files"
+source_backup_directory_path_exclude=""
+transport="rsync"
 find_route=true
+
 input_parameters=()
 len=${#parsed_options[@]}
 i=0
 while (( i<len )); do
 	case "${parsed_options[i]}" in
+		--transport)
+			transport="${parsed_options[i+1]}"
+			((i++))||:
+			;;
 		--route-configuration-file)
 			route_configuration_file_argument="${parsed_options[i+1]}"
 			indirect_call_by_route_file=true
-			((i++))
+			((i++))||:
 			;;
 		--interactive)
 			routes_file="$__script_path/configuration/INTERACTIVE.desynchronize"
@@ -38,7 +45,7 @@ while (( i<len )); do
 			;;
 	esac
 
-	((i++))
+	((i++))||:
 done
 
 set -- "${input_parameters[@]}"
@@ -47,19 +54,19 @@ set -- "${input_parameters[@]}"
 
 if $find_route; then
 	if [[ -z "$route_configuration_file_argument" ]]; then
-		readarray -t routes_files < <(ls -- ./*".desynchronize" 2> "/dev/null")
+		routes_files=( "./"*".desynchronize" )
 
-		if (( ${#routes_files[@]} == 0 )); then #@todo unclean
-			readarray -t routes_files < <(ls -- "./__desynchronized🖧/"*".desynchronize" 2> "/dev/null")
+		if (( ${#routes_files[@]} == 0 )); then
+			routes_files=( "./🖧/"*".desynchronize" )
+		fi
+
+		if (( ${#routes_files[@]} == 0 )); then
+			routes_files=( "./🖧.desynchronizer/"*".desynchronize" )
 		fi
 
 		possible_route_configuration_file_argument=${1:-}
 		if [[ -n "$possible_route_configuration_file_argument" ]]; then
-			if [[ -f "$route_configuration_file_argument" ]]; then #@todo unclean
-				routes_file="$possible_route_configuration_file_argument.desynchronize"
-			else
-				routes_file="./__desynchronized🖧/$possible_route_configuration_file_argument.desynchronize"
-			fi
+			routes_file="$possible_route_configuration_file_argument.desynchronize"
 
 			#remove current program argument $1 from $original_program_arguments
 			new_array=()
@@ -75,7 +82,7 @@ if $find_route; then
 
 			original_program_arguments=("${new_array[@]}")
 			original_program_arguments+=("--non-cli")
-			shift
+			shift ||:
 		elif (( ${#routes_files[@]} == 0 )); then
 			echo>&2 -e "ERROR: No route definition file found! (search expression: *.desynchronize)"
 
@@ -137,7 +144,7 @@ if [[ -n "${1:-}" ]]; then
 	done
 	original_program_arguments=("${new_array[@]}")
 	original_program_arguments+=("--select-path=$1")
-	shift
+	shift ||:
 fi
 
 if ! $indirect_call_by_route_file; then
@@ -150,7 +157,8 @@ if ! $indirect_call_by_route_file; then
 	exit
 fi
 
-route_base_name=$(basename -- "$route_name")
+source -- "$__script_path/library/$transport"
+route_base_name="$(basename -- "$route_name")"
 
 # main
 
@@ -158,19 +166,7 @@ desynchronize_with_configuration "${original_program_arguments[@]}"
 
 #route defaults
 
-template="%ROUTE_TYPE% '%ROUTE_NAME%'\n\n%DESCRIPTION%"
-description="\t\t─  %ROUTE_DESCRIPTION%\n\t\t─  %DIRECTORY_NAME% '%SOURCE%' ➡ %TARGET_DEVICE_DESCRIPTION%"
-
-apply_seal=false
-filter_rules_file=""
-source_pre_hook=""
-source_post_hook=""
-target_pre_hook=""
-target_post_hook=""
-select_path=""
-default_filter_rules_file=""
-debug=false
-ignore_arguments=("--route-configuration-file")
+ignore_arguments=("--route-configuration-file" "--transport")
 forwardable_parameter="rsync-options"
 
 length=1
@@ -180,10 +176,26 @@ cursor=0
 for (( r = 0; r < queue_configuration_options_count; r++)); do
 	wideness="${queue_configuration_options_wideness[r]}"
 
+	template="%ROUTE_TYPE% '%ROUTE_NAME%'\n\n%DESCRIPTION%"
+	description=""
+	apply_seal=false
+	filter_rules_file=""
+	source_pre_hook=""
+	source_post_hook=""
+	target_pre_hook=""
+	target_post_hook=""
+	select_path=""
+	default_filter_rules_file=""
+	debug=false
+	target_backup_directory_path_changed=false
+	source_backup_directory_path_exclude_changed=false
+	direction=""
 	is_cli=true
 	is_mirror=false
 	is_copy=false
+	is_sync=false
 	is_archive=false
+	remote_host_name=""
 	target_directory_name=""
 	source=""
 	target=""
@@ -200,8 +212,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		queue_parameters+=("$queue_configuration_option")
 	done
 
-	long_options="select-path::,output-template::,output-description::,non-cli,simulate,verify,ignore-directories,debug,verbose,compact-format,create-archive::,create-mirror::,create-copy::,source::,target::,source-pre-hook::,source-post-hook::,target-pre-hook::,target-post-hook::"
-	parsed_options2=$(getopt --options="::" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") || true
+	long_options="select-path::,output-template::,output-description::,non-cli,simulate,verify,ignore-directories,debug,verbose,compact-format,create-archive::,create-mirror::,create-copy::,sync-remote::,direction::,source::,target::,source-pre-hook::,source-post-hook::,target-pre-hook::,target-post-hook::,target-backup-directory-path::,source-backup-directory-path-exclude::"
+	parsed_options2=$(getopt --options="::" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") ||:
 
 	# shellcheck disable=SC2128
 	eval "set -- $parsed_options2"
@@ -222,7 +234,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--create-mirror)
 				is_mirror=true
@@ -233,13 +245,23 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--create-copy)
 				is_copy=true
 				#structure_postfix=".desynchronized.copy"
 				target_directory_name="${parsed_options[i+1]}" # allowed to be empty
-				((i++))
+				((i++))||:
+				;;
+			--sync-remote)
+				is_sync=true
+				remote_host_name="${parsed_options[i+1]}"
+				if [[ -z "$remote_host_name" ]]; then
+					echo>&2 -e "ERROR: --sync-remote requires value remote_host_name."
+
+					exit 1
+				fi
+				((i++))||:
 				;;
 			--compact-format)
 				is_compact_format=true
@@ -251,7 +273,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--source)
 				source="${parsed_options[i+1]}"
@@ -260,7 +282,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--output-description)
 				description="${parsed_options[i+1]}"
@@ -269,7 +291,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--output-template)
 				template="${parsed_options[i+1]}"
@@ -278,7 +300,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--source-pre-hook)
 				source_pre_hook="${parsed_options[i+1]}"
@@ -287,7 +309,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--source-post-hook)
 				source_post_hook="${parsed_options[i+1]}"
@@ -296,7 +318,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--target-pre-hook)
 				target_pre_hook="${parsed_options[i+1]}"
@@ -305,7 +327,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--target-post-hook)
 				target_post_hook="${parsed_options[i+1]}"
@@ -314,7 +336,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
 				;;
 			--select-path)
 				select_path="${parsed_options[i+1]}"
@@ -323,7 +345,41 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 					exit 1
 				fi
-				((i++))
+				((i++))||:
+				;;
+			--direction)
+				direction="${parsed_options[i+1]}"
+				if [[ -z "$direction" ]]; then
+					echo>&2 -e "ERROR: --direction must have a value."
+
+					exit 1
+				fi
+				if [[ "$direction" != "upload" && "$direction" != "download" ]]; then
+					echo>&2 -e "ERROR: --direction must either be 'upload' or 'download', you specified '$direction'."
+
+					exit 1
+				fi
+				((i++))||:
+				;;
+			--target-backup-directory-path)
+				target_backup_directory_path="${parsed_options[i+1]}"
+				target_backup_directory_path_changed=true
+				if [[ "${target_backup_directory_path:0:1}" == "/" ]]; then
+					echo>&2 -e "ERROR: --target-backup-directory-path cannot be an absolute path."
+
+					exit 1
+				fi
+				((i++))||:
+				;;
+			--source-backup-directory-path-exclude)
+				source_backup_directory_path_exclude="${parsed_options[i+1]}"
+				source_backup_directory_path_exclude_changed=true
+				if [[ "${source_backup_directory_path_exclude:0:1}" == "/" ]]; then
+					echo>&2 -e "ERROR: --source-backup-directory-path-exclude cannot be an absolute path."
+
+					exit 1
+				fi
+				((i++))||:
 				;;
 			--non-cli)
 				is_cli=false
@@ -350,7 +406,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 					exit 1
 				fi
 
-				((i++))
+				((i++))||:
 				break
 				;;
 			*)
@@ -359,8 +415,20 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				exit 1
 				;;
 		esac
-		((i++))
+		((i++))||:
 	done
+
+	if [[ -z "$description" ]]; then
+		symbol=""
+		if [[ "$transport" == "rclone" ]]; then
+			symbol="🖧"
+		fi
+		if [[ "$direction" == "upload" ]]; then
+			description="\t\t─  %ROUTE_DESCRIPTION%\n\t\t─  %DIRECTORY_NAME% '%SOURCE%' ⟶ $symbol %TARGET_DEVICE_DESCRIPTION%"
+		elif [[ "$direction" == "download" || $direction == "" ]]; then
+			description="\t\t─  %ROUTE_DESCRIPTION%\n\t\t─  %DIRECTORY_NAME% $symbol '%SOURCE%' ⟶ %TARGET_DEVICE_DESCRIPTION%"
+		fi
+	fi
 
 	declare -A output_variables=()
 	input_not_parsed=()
@@ -383,7 +451,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			fi
 		fi
 
-		if $not_done && ! array_contains "$name" "${parsed_options[@]}" && ! array_contains "$name" "${ignore_arguments[@]}"; then
+		if $not_done && ! __array_contains "$name" "${parsed_options[@]}" && ! __array_contains "$name" "${ignore_arguments[@]}"; then
 			if [[ "${argument:0:1}" == "-" && "${argument:1:1}" != "-" ]]; then
 				forwarded_parameters+=( "$argument" )
 			else
@@ -405,15 +473,16 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	interactive_data_user_confirmed=false
 
 	while ! $interactive_data_user_confirmed; do
+		#@todo fixme, also, missing section for rclone, this is for rsync
 		while [[ -z "$source" ]]; do
 			interactive=true
-			read -rp "Enter source: " "source"
+			read -rp "Enter source: " "source" ||:
 			[[ -n "$source" ]] && break
 		done
 
 		while [[ -z "$target" ]]; do
 			interactive=true
-			read -rp "Enter target: " "target"
+			read -rp "Enter target: " "target" ||:
 			[[ -n "$source" ]] && break
 		done
 
@@ -421,7 +490,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			echo "Source: $source"
 			echo "Target: $target"
 
-			read -p "Is this correct? (Y/N): " "confirm"
+			read -rp "Is this correct? (Y/N): " "confirm" ||:
 			[[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]] && break
 			source=""
 			target=""
@@ -439,22 +508,29 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		show_more=true
 	fi
 
-	current_date="$(date +"%d.%m.%Y [%H∶%M∶%S]")"
+	current_date_as_string="$(date +"%d.%m.%Y [%H∶%M∶%S]")" #@fixme use from library/base
+	current_date="$(date +%Y%m%d%H%M%S)" #@fixme use from library/base
 
 	if [[ "$filter_rules_file" == "" && -f "$__current_directory/$route_name.filter-rules" ]]; then
 		filter_rules_file="$route_name.filter-rules"
+	fi
+
+	rule_file_real_path="$(dirname -- "$(realpath --quiet --canonicalize -- "$PWD/$route_name.desynchronize")")"
+	if [[ "$filter_rules_file" == "" && -f "$rule_file_real_path/$route_name.filter-rules" ]]; then
+		filter_rules_file="$rule_file_real_path/$route_name.filter-rules"
 	fi
 
 	if [[ "$filter_rules_file" == "" && -f "$route_name.filter-rules" ]]; then
 		filter_rules_file="$route_name.filter-rules"
 	fi
 
-	if [[ -z "$select_path" && -f "$__script_path/configuration/default.filter-rules" ]]; then
-		default_filter_rules_file="$__script_path/configuration/default.filter-rules"
-	elif [[ -n "$select_path" && -f "$__script_path/configuration/default-select-path.filter-rules" ]]; then
-		default_filter_rules_file="$__script_path/configuration/default-select-path.filter-rules"
+	if [[ -z "$select_path" && -f "$__script_path/configuration/default.filter-rules.$transport" ]]; then
+		default_filter_rules_file="$__script_path/configuration/default.filter-rules.$transport"
+	elif [[ -n "$select_path" && -f "$__script_path/configuration/default-select-path.filter-rules.$transport" ]]; then
+		default_filter_rules_file="$__script_path/configuration/default-select-path.filter-rules.$transport"
 	fi
 
+	# @todo hooks will not work with rclone !?
 	if [[ -n "$source_pre_hook" ]]; then
 		if [[ "${source_pre_hook:0:1}" != "/" ]]; then
 			source_pre_hook="$source/$source_pre_hook"
@@ -554,86 +630,211 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	custom_options=("${forwarded_parameters[@]}")
 
-	if [[ -n "$default_filter_rules_file" ]]; then
-		custom_options+=(--filter="merge $default_filter_rules_file")
-	fi
+	if [[ "$transport" == "rsync" ]]; then
+		if [[ -n "$default_filter_rules_file" ]]; then
+			custom_options+=(--filter="merge $default_filter_rules_file")
+		fi
 
-	if [[ -n "$filter_rules_file" ]]; then
-		custom_options+=(--filter="merge $filter_rules_file")
-	fi
+		if [[ -n "$filter_rules_file" ]]; then
+			custom_options+=(--filter="merge $filter_rules_file")
+		fi
+	elif [[ "$transport" == "rclone" ]]; then
+    	if [[ -n "$default_filter_rules_file" ]]; then
+    		custom_options+=(--filter-from="$default_filter_rules_file")
+    	fi
+
+    	if [[ -n "$filter_rules_file" ]]; then
+    		custom_options+=(--filter-from="$filter_rules_file")
+    	fi
+    else
+    	:
+    fi
 
 	route_type=""
 	options_that_take_precedence_last=()
 
-	if $is_archive; then
-		route_type="ARCHIVE"
-		target="$target$structure_postfix"
-
-		if $is_compact_format; then
-			route_type="COMPACT ARCHIVE"
-
-			if [[ -n "$target_directory_name" ]]; then
-				synchronizer_application_data_path="$root_target/$target_directory_name/.desynchronizer/$current_date"
-			else
-				synchronizer_application_data_path="$root_target/.desynchronizer/$current_date"
-			fi
-
-			options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
-			options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
-			options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
-		else
-			synchronizer_application_data_path="$root_target/$target_directory_name.desynchronizer/$current_date"
-		fi
-
-	elif $is_mirror; then
-		route_type="MIRROR"
-		target="$target$structure_postfix"
-
-		if $is_compact_format; then
-			route_type="COMPACT MIRROR"
-
-			if [[ -n "$target_directory_name" ]]; then
-				synchronizer_application_data_path="$root_target/$target_directory_name/.desynchronizer/$current_date"
-			else
-				synchronizer_application_data_path="$root_target/.desynchronizer/$current_date"
-			fi
-
-			options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
-			options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
-			options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
-		else
-			synchronizer_application_data_path="$root_target/$target_directory_name.desynchronizer/$current_date"
-		fi
-
-	elif $is_copy; then
-		route_type="COPY"
-
-		if $is_compact_format; then
-			route_type="COMPACT COPY"
-
-			if [[ -n "$root_target_directory_name" ]]; then
-				synchronizer_application_data_path="$root_target/$target_directory_name/.desynchronizer/$current_date"
-			else
-				synchronizer_application_data_path="$root_target/.desynchronizer/$current_date"
-			fi
-
-			options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
-			options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
-			options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
-		else
-			if [[ -n "$root_target_directory_name" ]]; then
-				synchronizer_application_data_path="$root_target/$root_target_directory_name/desynchronizer/$current_date"
-			else
-				synchronizer_application_data_path="$root_target/desynchronizer/$current_date"
-			fi
-		fi
-	fi
-
-	backup_directory="$synchronizer_application_data_path/backup-files"
-	my_default_log_file="$synchronizer_application_data_path/default.log"
-	error_log_file="$synchronizer_application_data_path/error.log"
 	source_base_name=$(basename -- "$source")
 	target_base_name=$(basename -- "$target")
+
+	if [[ $transport == "rsync" ]]; then #@todo move to rsync-handler
+		if $is_archive; then
+			route_type="ARCHIVE"
+			target="$target$structure_postfix"
+
+			if $is_compact_format; then
+				route_type="COMPACT ARCHIVE"
+
+				if [[ -n "$target_directory_name" ]]; then
+					synchronizer_application_data_path="$root_target/$target_directory_name/.desynchronizer/$current_date_as_string"
+				else
+					synchronizer_application_data_path="$root_target/.desynchronizer/$current_date_as_string"
+				fi
+
+				options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
+				options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+				options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+			else
+				synchronizer_application_data_path="$root_target/$target_directory_name.desynchronizer/$current_date_as_string"
+			fi
+
+		elif $is_mirror; then
+			route_type="MIRROR"
+			target="$target$structure_postfix"
+
+			if $is_compact_format; then
+				route_type="COMPACT MIRROR"
+
+				if [[ -n "$target_directory_name" ]]; then
+					synchronizer_application_data_path="$root_target/$target_directory_name/.desynchronizer/$current_date_as_string"
+				else
+					synchronizer_application_data_path="$root_target/.desynchronizer/$current_date_as_string"
+				fi
+
+				options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
+				options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+				options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+			else
+				synchronizer_application_data_path="$root_target/$target_directory_name.desynchronizer/$current_date_as_string"
+			fi
+
+		elif $is_copy; then
+			route_type="COPY"
+
+			if $is_compact_format; then
+				route_type="COMPACT COPY"
+
+				if [[ -n "$root_target_directory_name" ]]; then
+					synchronizer_application_data_path="$root_target/$target_directory_name/.desynchronizer/$current_date_as_string"
+				else
+					synchronizer_application_data_path="$root_target/.desynchronizer/$current_date_as_string"
+				fi
+
+				options_that_take_precedence_last+=(--exclude='/.desynchronizer/')
+				options_that_take_precedence_last+=(--filter='hide /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+				options_that_take_precedence_last+=(--filter='protect /.desynchronizer/') # when --delete-excluded is used, then do not delete this item, even if it is excluded
+			else
+				if [[ -n "$root_target_directory_name" ]]; then
+					synchronizer_application_data_path="$root_target/$root_target_directory_name/desynchronizer/$current_date_as_string"
+				else
+					synchronizer_application_data_path="$root_target/desynchronizer/$current_date_as_string"
+				fi
+			fi
+
+		fi
+
+		backup_directory="$synchronizer_application_data_path/$target_backup_directory_path"
+		mkdir --parents -- "$synchronizer_application_data_path/" || exit 1
+		if ! $simulate; then
+			mkdir --parents -- "$backup_directory/" || exit 1
+		fi
+	elif [[ "$transport" == "rclone" ]]; then #@todo move to rsync-handler
+		if ! $is_sync; then
+        	echo "--sync is missing for --rclone"
+        	exit 1
+        fi
+		if [[ -z "$remote_host_name" ]]; then
+			echo "remote_host_name is empty for --rclone"
+			exit 1
+		fi
+		if [[ -z "$direction" ]]; then
+        	echo "--direction is missing for --rclone"
+        	exit 1
+        fi
+		route_type="SYNC"
+		if [[ "$direction" == "download" ]]; then
+			#host_prepend="$remote_host_name:"
+			#if [[ "${source:0:1}" != "/" ]]; then
+			#	host_prepend="$remote_host_name:/"
+			#fi
+       	 	#source="$host_prepend$source"
+       	 	source="$remote_host_name:/$(__right_normalize_absolute_path "$source")"
+
+			target_directory_name="$(basename -- "$root_target")"
+			synchronizer_application_data_path="$(realpath --quiet --no-symlinks --canonicalize-missing "$root_target/../$target_directory_name.desynchronizer/$current_date_as_string")"
+			if ! $target_backup_directory_path_changed; then
+				target_backup_directory_path="$local_archive_directory_name"
+       	 	fi
+			if ! $source_backup_directory_path_exclude_changed; then
+				source_backup_directory_path_exclude="$cloud_archive_directory_name"
+       	 	fi
+
+			target_backup_directory_path="$(__normalize_absolute_path "$target_backup_directory_path")"
+			source_backup_directory_path_exclude="$(__normalize_absolute_path "$source_backup_directory_path_exclude")"
+
+       	 	options_that_take_precedence_last+=(--exclude="$target_backup_directory_path")
+			options_that_take_precedence_last+=(--exclude="$source_backup_directory_path_exclude")
+
+			backup_directory_base="$root_target/$target_backup_directory_path/"
+        	if [[ -d "$backup_directory_base" && ! -f "$backup_directory_base/DESYNCHRONIZER-BACKUP-FLAGFILE" ]]; then
+        		echo "Error: backup_directory '"$backup_directory_base"' is missing the flag file DESYNCHRONIZER-BACKUP-FLAGFILE to mark it as the backup directory. Existing directories cannot be used as an backup directory for safety reasons."
+        		exit 1
+        	fi
+        elif [[ "$direction" == "upload" ]]; then
+			#host_prepend="$remote_host_name:"
+			#if [[ "${target:0:1}" != "/" ]]; then
+			#	host_prepend="$remote_host_name://"
+			#fi
+       	 	#target="$host_prepend$target"
+
+       	 	target="$remote_host_name:/$(__right_normalize_absolute_path "$target")"
+
+			source_directory_name="$(basename -- "$root_source")"
+			synchronizer_application_data_path="$(realpath --quiet --no-symlinks --canonicalize-missing "$root_source/../$source_directory_name.desynchronizer/$current_date_as_string")"
+
+			#host_prepend="$remote_host_name:"
+			#if [[ "${root_target:0:1}" != "/" ]]; then
+			#	host_prepend="$remote_host_name://"
+			#fi
+       	 	#root_target1="$host_prepend$root_target"
+
+       	 	root_target1="$remote_host_name:/$(__right_normalize_absolute_path "$root_target")"
+
+       	 	if ! $target_backup_directory_path_changed; then
+       	 		target_backup_directory_path="$cloud_archive_directory_name"
+       	 	fi
+			if ! $source_backup_directory_path_exclude_changed; then
+				source_backup_directory_path_exclude="$local_archive_directory_name"
+       	 	fi
+
+			target_backup_directory_path="$(__normalize_absolute_path "$target_backup_directory_path")"
+			source_backup_directory_path_exclude="$(__normalize_absolute_path "$source_backup_directory_path_exclude")"
+
+       	 	options_that_take_precedence_last+=(--exclude="$target_backup_directory_path")
+			options_that_take_precedence_last+=(--exclude="$source_backup_directory_path_exclude")
+
+        	backup_directory_base="$root_target1/$target_backup_directory_path/"
+
+        	#rclone lsf "$backup_directory_base/DESYNCHRONIZER-BACKUP-FLAGFILE"
+        	#@todo verify online that "$backup_directory_base/DESYNCHRONIZER-BACKUP-FLAGFILE" exists
+        	#if [[ -d "$backup_directory_base" && ! -f "$backup_directory_base/DESYNCHRONIZER-BACKUP-FLAGFILE" ]]; then
+        	#	echo "Error: backup_directory '$backup_directory_base' is missing the flag file DESYNCHRONIZER-BACKUP-FLAGFILE to mark it as the backup directory. Existing directories cannot be used as an backup #directory for safety reasons."
+        	#	exit 1
+        	#fi
+        fi
+
+        backup_directory="$backup_directory_base/$(date +"%d.%m.%Y [%H∶%M∶%S]")/"
+		mkdir --parents -- "$synchronizer_application_data_path/" || exit 1
+
+		if ! $simulate; then
+			if [[ "$direction" == "download" ]]; then
+				mkdir --parents -- "$backup_directory/" || exit 1
+
+				if [[ ! -f "$backup_directory_base/DESYNCHRONIZER-BACKUP-FLAGFILE" ]]; then
+					touch -- "$backup_directory_base/DESYNCHRONIZER-BACKUP-FLAGFILE" || exit 1
+				fi
+			elif [[ "$direction" == "upload" ]]; then
+				#@todo verify that file "$backup_directory_base/DESYNCHRONIZER-BACKUP-FLAGFILE" exists online! if not touch it!
+				:
+			fi
+		fi
+
+	else
+		echo "Error: unknown transport method '$transport'!"
+		exit 1
+	fi
+
+	full_log_file="$synchronizer_application_data_path/default.log"
+	error_log_file="$synchronizer_application_data_path/error.log"
 
 	description_string="$template"
 	output_variables["DESCRIPTION"]="$description"
@@ -682,8 +883,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	fi
 
 	if $verbose; then
-		read -r -p "Press enter to continue…"
-		nclr 1
+		read -r -p "Press enter to continue…" ||:
+		__nclr 1
 
 		echo -en "\nROUTE CONFIGURATION\n\n"
 		for option in "${queue_parameters[@]}"; do
@@ -693,22 +894,24 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		done
 
 		echo -en "\n\n"
-		read -r -p "Press enter to continue…"
-		nclr 0
+		read -r -p "Press enter to continue…" ||:
+		__nclr 0
 
 		echo -e "COMPLETE RSYNC SHELL COMMAND LINE STRING:\n"
-		echo -e "\trsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file"
+		#echo -e "\trsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file"
+		transport_as_string
+
 		echo -ne "\n\n\n"
 
-		read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
-		nclr 0
+		read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||:
+		__nclr 0
 	else
 		if $is_cli; then
-			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
-			nclr 0
+			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||:
+			__nclr 0
 		else
-			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…"
-			nclr 0
+			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||:
+			__nclr 0
         fi
 	fi
 
@@ -718,17 +921,20 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		echo -ne "done!\n"
 	fi
 
-	if $simulate; then
-		mkdir --parents -- "$synchronizer_application_data_path/" || exit 1
-	else
-		mkdir --parents -- "$synchronizer_application_data_path/backup-files" || exit 1
-	fi
 
 	[[ -n "$source_pre_hook" ]] && (cd -- "$source" && "$source_pre_hook" "pre" "source" "$simulate" )
 	[[ -n "$target_pre_hook" ]] && (cd -- "$target" && "$target_pre_hook" "pre" "target" "$simulate" )
-	echo -e "rsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file" > "$synchronizer_application_data_path/CMD"
+
+	#echo -e "rsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file" > "$synchronizer_application_data_path/CMD"
+
+	transport_as_string > "$synchronizer_application_data_path/CMD"
+
 	# --max-alloc=5g
-	rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$my_default_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" 2> "$error_log_file"
+	#rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" 2> "$error_log_file"||:
+
+	set -x
+	start_transport ||:
+	set +x
 
 	cat -- "$error_log_file"
 
@@ -755,8 +961,16 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	[[ -n "$source_post_hook" ]] && (cd -- "$source" && "$source_post_hook" "post" "source" "$simulate" )
 	[[ -n "$target_post_hook" ]] && (cd -- "$target" && "$target_post_hook" "post" "target" "$simulate" )
 
-	[[ -d "$synchronizer_application_data_path/backup-files" && -z "$(ls -1qA -- "$synchronizer_application_data_path/backup-files" 2>"/dev/null")" ]] && rmdir -- "$synchronizer_application_data_path/backup-files"
-	[[ -f "$my_default_log_file" && ! -s "$my_default_log_file" ]] && rm -- "$my_default_log_file"
+	if [[ "$transport" == "rsync" ]]; then #@todo move to rsync-handler
+		[[ -d "$synchronizer_application_data_path/$target_backup_directory_path" && -z "$(ls -1qA -- "$synchronizer_application_data_path/$target_backup_directory_path" 2>"/dev/null")" ]] && rmdir -- "$synchronizer_application_data_path/$target_backup_directory_path"
+	elif [[ "$transport" == "rclone" ]]; then #@todo move to rclone-handler
+		[[ -d "$backup_directory" && -z "$(ls -1qA -- "$backup_directory" 2>"/dev/null")" ]] && rmdir -- "$backup_directory"
+		[[ -d "$backup_directory_base" && -z "$(ls -1qA -- "$backup_directory_base" 2>"/dev/null")" ]] && rmdir -- "$backup_directory_base"
+	else
+		:
+	fi
+
+	[[ -f "$full_log_file" && ! -s "$full_log_file" ]] && rm -- "$full_log_file"
 	[[ -f "$error_log_file" && ! -s "$error_log_file" ]] && rm -- "$error_log_file"
 
 	if ! $simulate && $apply_seal; then

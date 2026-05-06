@@ -1,0 +1,11 @@
+#!/bin/bash
+
+source -- ~/"bin/common-library.current"
+__set_script_path
+__on_sigint_set_interrupted_flag
+
+bash --rcfile "./bashrc" -- ||:
+#bash --restricted --rcfile "./bashrc" -- ||:
+
+echo "EXIT DESYNCHRONIZER INPUT CONSOLE"
+

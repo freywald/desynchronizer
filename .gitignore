@@ -1,3 +1,4 @@
 /.idea
 /promos/*
 !/promos/official-hymn-desynchronizer.mp3
+/archive/**

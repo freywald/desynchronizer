@@ -1,0 +1,7 @@
+# DEFAULT RULES IF SELECT PATH IS USED
+
+## always recognize any directory with a .__IGNORED🖧-postfix and ignore it –– regardless of --ignore-directories and ––select-path
+
+exclude ./*.__IGNORED🖧/
+hide ./*.__IGNORED🖧/
+protect ./*.__IGNORED🖧/

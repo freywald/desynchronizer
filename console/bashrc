@@ -1,0 +1,75 @@
+#!/bin/bash
+__eX10DEAD_ONCE_INITIALIZED="$PWD"
+source -- "$HOME/.bashrc"
+__enable_error_handler
+
+cd -- "./home"
+
+unalias -a
+
+__handle_application_path "./bin/"
+
+__set_title "DESYNCHRONIZER INPUT CONSOLE"
+
+help_text=$(cat -- "../desynchronizer.markdown")
+cd -- "bin" || exit 1
+
+source -- "$HOME/applications/desynchronizer/configuration/aliases"
+
+PATH="$PWD:/mnt/daten_local/Media/applications/desynchronizer/bin:$PATH"
+
+function help() {
+	__usage_example "$help_text"
+	echo "desynchronize"
+	echo
+	ls -1 *".desynchronize" | while read -r file; do if [[ -L "$file" ]]; then \
+		transport=""; \
+		if [[ -f "$file"  ]]; then \
+			link=$(readlink --canonicalize --no-newline --quiet -- "./$file"); \
+			link="$(dirname -- "$link")"; \
+			else link="\e[31;1m[MISSING]\033[0m\e[34m $(readlink --canonicalize-missing --no-newline --quiet -- "./$file")"; \
+		fi; \
+		transport="$(grep -oP -- "--transport=\"(\K[^\"]*)" "$file" 2>"/dev/null")" || transport="rsync";  \
+		echo -e "    \e[37m./\e[1;35m${file%.*} \e[0;37m		\e[37mfrom:\e[34m $link\t\t[$transport]\033[0m"; else echo -e "    \e[37m./\e[1;35m${file%.*}\t\t[$transport]\033[0m"; fi; done
+	echo
+}
+
+help
+
+PROMPT_COMMAND="history -a;echo -ne \"\033]0; DESYNCHRONIZER 〰 INPUT CONSOLE\007\""
+PS0=""
+PS1="${COLOR_BOLD_BLUE}DESYNCHRONIZER 〰 INPUT CONSOLE${COLOR_RESTORE}${COLOR_GRAY} ━━━━━ "
+
+#glob active; set -o noglob # required so that 'da https://www.youtube.com/watch?v=16dK7gWFqI4' the url does not need to be quoted with "", in this case specifically because of special glob character ?
+
+_desynchronize_only() {
+    local cur
+
+    if ! [[ ${COMP_WORDS+x} && ${COMP_CWORD+x} ]] || (( COMP_CWORD >= ${#COMP_WORDS[@]} )); then
+        cur=""
+    else
+        cur="${COMP_WORDS[COMP_CWORD]}"
+    fi
+
+    local -a candidates
+    mapfile -t candidates < <(compgen -f -- "$cur" 2>"/dev/null")
+
+    COMPREPLY=()
+    local f
+    for f in "${candidates[@]}"; do
+        if [[ $f =~ \.desynchronize$ ]] && ! [[ -d "$f" ]]; then
+            COMPREPLY+=( "$f" )
+        fi
+    done
+}
+
+# REMOVE any default bash-completion installed
+complete -r -D 2>/dev/null ||:
+complete -r -E 2>/dev/null ||:
+complete -r -I 2>/dev/null ||:
+
+complete -I -F _desynchronize_only -o filenames # first word on the line (DA<Tab>, ./DATEN<Tab>)
+complete -E -F _desynchronize_only -o filenames # completely empty line + Tab
+complete -D -F _desynchronize_only -o filenames # default filename completion (./<Tab>)
+
+

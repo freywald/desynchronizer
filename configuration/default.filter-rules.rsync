@@ -1,0 +1,23 @@
+# DEFAULT RULES
+
+## do not touch the information files
+
+exclude /🤍🩵💙 $desynchronized$ 💙🩵🤍
+hide /🤍🩵💙 $desynchronized$ 💙🩵🤍
+protect /🤍🩵💙 $desynchronized$ 💙🩵🤍
+
+exclude /💜🩷❤️ DO NOT TOUCH THE HIDDEN DIRECTORY .desynchronizer 💜🩷❤️
+exclude /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S A MIRROR. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+exclude /🧡💛💚 DO NOT TOUCH ANY OF THESE FILES HERE, IT'S AN ARCHIVE. 💕 LET US ☼LIVE☼ HERE ☺ 💕 💚💛🧡
+
+## allow only the root ignore-directory always. If program argument --ignore-directories is used, subdirectories named "__IGNORED🖧" are excluded as well.
+
+exclude /__IGNORED🖧/
+hide /__IGNORED🖧/
+protect /__IGNORED🖧/
+
+## always recognize any directory with a .__IGNORED🖧-postfix and ignore it –– regardless of --ignore-directories and ––select-path
+
+exclude ./*.__IGNORED🖧/
+hide ./*.__IGNORED🖧/
+protect ./*.__IGNORED🖧/

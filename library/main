@@ -2,7 +2,8 @@
 __DESYNCHRONIZER_INCLUDE_ONCE_LIBRARY="true"
 
 source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/")/base"
-set_script_path
+__set_script_path
+__enable_error_handler
 
 routes_file=""
 indirect_call_by_route_file=false
@@ -14,5 +15,6 @@ function desynchronize_with_configuration() {
 	# linearized array data with arbitrary wideness
 	queue_configuration_options+=("$@")
 	queue_configuration_options_wideness+=($#)
-	((queue_configuration_options_count++))
+	((queue_configuration_options_count++))||:
 }
+

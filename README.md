@@ -74,7 +74,7 @@ mkdir --parents -- "$path" && \
 git clone -- https://github.com/freywald/desynchronizer "$path" && \
 cd -- "$path" && \
 git remote set-url --push origin push_disabled && \
-./install && \
+./installation/install && \
 echo "Installation successful."
 ```
 2. Installation successful.
