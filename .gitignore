@@ -2,3 +2,4 @@
 /promos/*
 !/promos/official-hymn-desynchronizer.mp3
 /archive/**
+/library/FORCE_EXTERNAL_LIBRARY

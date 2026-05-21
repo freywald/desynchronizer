@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# DESYNCHRONIZER
+# 					Synchronize by desynchronizing, disorganize by reorganizing.
+#
+# runs desynchronizer with these options:
+
+desynchronizer --transport="rsync" --route-configuration-file="${BASH_SOURCE[0]}" "$@" \
+--create-archive="Personal_Data_1" \
+--source="/home/user/Personal_Data_1" \
+--target="/media/data/\$desynchronized\$" \
+--output-variable-route-description="Creates an archive of the Personal_Data_1 directory." \
+--output-variable-directory-name="Personal_Data_1 directory" \
+--output-variable-target-device-description="external USB-C device Samsung PSSD T9 4TB SSD black SN#CODE" \

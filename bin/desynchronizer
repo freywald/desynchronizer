@@ -67,8 +67,17 @@ if $find_route; then
 		possible_route_configuration_file_argument=${1:-}
 		if [[ -n "$possible_route_configuration_file_argument" ]]; then
 			routes_file="$possible_route_configuration_file_argument.desynchronize"
+			if [[ ! -f "$routes_file" ]]; then
+				routes_file="./🖧/$possible_route_configuration_file_argument.desynchronize"
+			fi
+			if [[ ! -f "$routes_file" ]]; then
+				routes_file="./🖧.desynchronizer/$possible_route_configuration_file_argument.desynchronize"
+			fi
+			if [[ ! -f "$routes_file" ]]; then
+				routes_file=""
+			fi
 
-			#remove current program argument $1 from $original_program_arguments
+			# remove current program argument $1 from $original_program_arguments
 			new_array=()
 			index_removed=0
 			for parameter in "${original_program_arguments[@]}"; do
@@ -79,7 +88,6 @@ if $find_route; then
 				fi
 				new_array+=("$parameter")
 			done
-
 			original_program_arguments=("${new_array[@]}")
 			original_program_arguments+=("--non-cli")
 			shift ||:
@@ -184,6 +192,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	source_post_hook=""
 	target_pre_hook=""
 	target_post_hook=""
+	ignore_path=""
 	select_path=""
 	default_filter_rules_file=""
 	debug=false
@@ -212,7 +221,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		queue_parameters+=("$queue_configuration_option")
 	done
 
-	long_options="select-path::,output-template::,output-description::,non-cli,simulate,verify,ignore-directories,debug,verbose,compact-format,create-archive::,create-mirror::,create-copy::,sync-remote::,direction::,source::,target::,source-pre-hook::,source-post-hook::,target-pre-hook::,target-post-hook::,target-backup-directory-path::,source-backup-directory-path-exclude::"
+	long_options="select-path::,ignore-path::,output-template::,output-description::,non-cli,simulate,verify,ignore-directories,debug,verbose,compact-format,create-archive::,create-mirror::,create-copy::,sync-remote::,direction::,source::,target::,source-pre-hook::,source-post-hook::,target-pre-hook::,target-post-hook::,target-backup-directory-path::,source-backup-directory-path-exclude::"
 	parsed_options2=$(getopt --options="::" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") ||:
 
 	# shellcheck disable=SC2128
@@ -253,7 +262,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				target_directory_name="${parsed_options[i+1]}" # allowed to be empty
 				((i++))||:
 				;;
-			--sync-remote)
+			--sync-remote) #@todo fixme synchronize !!!
 				is_sync=true
 				remote_host_name="${parsed_options[i+1]}"
 				if [[ -z "$remote_host_name" ]]; then
@@ -296,7 +305,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--output-template)
 				template="${parsed_options[i+1]}"
 				if [[ -z "$template" ]]; then
-					echo>&2 -e "ERROR: output-template must have a value."
+					echo>&2 -e "ERROR: --output-template must have a value."
 
 					exit 1
 				fi
@@ -305,7 +314,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--source-pre-hook)
 				source_pre_hook="${parsed_options[i+1]}"
 				if [[ -z "$source_pre_hook" ]]; then
-					echo>&2 -e "ERROR: --source_pre_hook must have a value."
+					echo>&2 -e "ERROR: --source-pre-hook must have a value."
 
 					exit 1
 				fi
@@ -314,7 +323,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--source-post-hook)
 				source_post_hook="${parsed_options[i+1]}"
 				if [[ -z "$source_post_hook" ]]; then
-					echo>&2 -e "ERROR: --source_post_hook must have a value."
+					echo>&2 -e "ERROR: --source-post-hook must have a value."
 
 					exit 1
 				fi
@@ -323,7 +332,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--target-pre-hook)
 				target_pre_hook="${parsed_options[i+1]}"
 				if [[ -z "$target_pre_hook" ]]; then
-					echo>&2 -e "ERROR: --target_pre_hook must have a value."
+					echo>&2 -e "ERROR: --target-pre-hook must have a value."
 
 					exit 1
 				fi
@@ -332,7 +341,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--target-post-hook)
 				target_post_hook="${parsed_options[i+1]}"
 				if [[ -z "$target_post_hook" ]]; then
-					echo>&2 -e "ERROR: --target_post_hook must have a value."
+					echo>&2 -e "ERROR: --target-post-hook must have a value."
 
 					exit 1
 				fi
@@ -341,7 +350,16 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--select-path)
 				select_path="${parsed_options[i+1]}"
 				if [[ -z "$select_path" ]]; then
-					echo>&2 -e "ERROR: --select_path must have a value."
+					echo>&2 -e "ERROR: --select-path must have a value."
+
+					exit 1
+				fi
+				((i++))||:
+				;;
+			--ignore-path)
+				ignore_path="${parsed_options[i+1]}"
+				if [[ -z "$ignore_path" ]]; then
+					echo>&2 -e "ERROR: --ignore-path must have a value."
 
 					exit 1
 				fi
@@ -410,7 +428,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				break
 				;;
 			*)
-				echo>&2 "UNKNOWN_PARAM: ${parsed_options[i]}"
+				echo>&2 "ERROR: UNKNOWN PARAMETER: ${parsed_options[i]}"
 
 				exit 1
 				;;
@@ -867,6 +885,13 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	fi
 	echo -en "\n\n"
 
+	if [[ -n "$ignore_path" ]]; then
+		ignore_path="$(__right_normalize_absolute_path "$ignore_path")"
+		custom_options+=(--exclude="$ignore_path")
+		custom_options+=(--filter="hide $ignore_path")
+		custom_options+=(--filter="protect $ignore_path")
+	fi
+
 	if $simulate; then
 		$debug && echo "SIMULATE ON"
 		custom_options+=("--dry-run")
@@ -883,7 +908,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	fi
 
 	if $verbose; then
-		read -r -p "Press enter to continue…" ||:
+		read -r -p "Press enter to continue…1" ||:
 		__nclr 1
 
 		echo -en "\nROUTE CONFIGURATION\n\n"
@@ -894,7 +919,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		done
 
 		echo -en "\n\n"
-		read -r -p "Press enter to continue…" ||:
+		read -r -p "Press enter to continue…2" ||:
 		__nclr 0
 
 		echo -e "COMPLETE RSYNC SHELL COMMAND LINE STRING:\n"
@@ -920,7 +945,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		sudo chattr -R -i -- "$target/" 2>"/dev/null"
 		echo -ne "done!\n"
 	fi
-
 
 	[[ -n "$source_pre_hook" ]] && (cd -- "$source" && "$source_pre_hook" "pre" "source" "$simulate" )
 	[[ -n "$target_pre_hook" ]] && (cd -- "$target" && "$target_pre_hook" "pre" "target" "$simulate" )

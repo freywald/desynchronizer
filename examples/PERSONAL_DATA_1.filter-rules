@@ -1,0 +1,33 @@
+# ROUTE RULES
+
+## temporary
+
+#@todo fixme
+exclude /Media/Persönlich/Sicherungen/
+hide /Media/Persönlich/Sicherungen/
+protect /Media/Persönlich/Sicherungen/
+
+## linux specific
+
+exclude /lost+found
+hide /lost+found
+protect /lost+found
+
+exclude /.Trash-1000
+hide /.Trash-1000
+protect /.Trash-1000
+
+## route specific
+
+exclude /Media/Persönlich/Audio-Produktion/Virtual Machine/
+hide /Media/Persönlich/Audio-Produktion/Virtual Machine/
+protect /Media/Persönlich/Audio-Produktion/Virtual Machine/
+
+exclude target/debug*
+exclude target/machine*
+exclude target/release*
+exclude target/wasm32-unknown-unknown*
+
+exclude /Media/Persönlich/Arbeitsumgebung/Programme/firefox/*/cache2/*
+exclude /Media/Persönlich/Arbeitsumgebung/Programme/firefox/*/storage/default/*
+

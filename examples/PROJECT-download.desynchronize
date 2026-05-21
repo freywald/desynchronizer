@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# DESYNCHRONIZER
+# 					Synchronize by desynchronizing, disorganize by reorganizing.
+#
+# runs desynchronizer with these options:
+
+desynchronizer --transport="rclone" --route-configuration-file="${BASH_SOURCE[0]}" "$@" \
+--sync-remote="hoster-storage" --direction="download" \
+--source="project/name/" \
+--target="/home/user/Personal_Daten_1/project/name/" \
+--target-backup-directory-path="Archiv/local-file-archive/" \
+--source-backup-directory-path-exclude="Archiv/cloud-file-archive/" \
+--output-variable-route-description="Uploads project_name directory to the Storage hoster_product." \
+--output-variable-directory-name="project_name directory" \
+--output-variable-source-device-description="local computer_name" \
+--output-variable-target-device-description="external hoster_name Storage hoster_product – size_with_units – https://URLIP"
+
