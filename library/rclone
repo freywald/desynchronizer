@@ -16,11 +16,11 @@ function transport_as_string() {
 function start_transport() {
 	if [[ "$direction" == "upload" ]]; then
 		# --dump filters disabled because it enables --verbose, see https://github.com/rclone/rclone/issues/5790
-		2> >(tee -a "$error_log_file" | tee -a "$full_log_file" >&2) rclone sync "${custom_options[@]}" --modify-window 2s --create-empty-src-dirs --no-update-dir-modtime --skip-links --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --ignore-size --check-first --update --track-renames --metadata --backup-dir "$backup_directory/" "${options_that_take_precedence_last[@]}" -- "$source/" "$target" | tee -a "$full_log_file" ||:
+		2> >(tee -a "$error_log_file" | tee -a "$full_log_file" >&2) rclone sync "${custom_options[@]}" --modify-window 2s --create-empty-src-dirs --no-update-dir-modtime --skip-links --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --ignore-size --check-first --update --track-renames --metadata --backup-dir "$backup_directory/" "${options_that_take_precedence_last[@]}" -- "$source/" "$target" | tee -a "$full_log_file" ||__expression_may_fail
 
 	elif [[ "$direction" == "download" ]]; then
 		# --dump filters disabled because it enables --verbose, see https://github.com/rclone/rclone/issues/5790
-		2> >(tee -a "$error_log_file" | tee -a "$full_log_file" >&2) rclone sync "${custom_options[@]}" --modify-window 2s --create-empty-src-dirs --no-update-dir-modtime --skip-links --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --ignore-size --check-first --update --track-renames --metadata --delete-during --backup-dir "$backup_directory/" "${options_that_take_precedence_last[@]}" -- "$source/" "$target" | tee -a "$full_log_file" ||:
+		2> >(tee -a "$error_log_file" | tee -a "$full_log_file" >&2) rclone sync "${custom_options[@]}" --modify-window 2s --create-empty-src-dirs --no-update-dir-modtime --skip-links --retries=1 --transfers=1 --verbose --progress-terminal-title --stats-one-line --progress --checksum --ignore-size --check-first --update --track-renames --metadata --delete-during --backup-dir "$backup_directory/" "${options_that_take_precedence_last[@]}" -- "$source/" "$target" | tee -a "$full_log_file" ||__expression_may_fail
 	fi
 }
 

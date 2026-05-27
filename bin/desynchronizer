@@ -6,7 +6,7 @@
 
 long_options="route-configuration-file:,interactive,transport::"
 original_program_arguments=("$@")
-parsed_options2=$(getopt --options=":" --longoptions="$long_options" --name "$0" -- "$@") ||:
+parsed_options2=$(getopt --options=":" --longoptions="$long_options" --name "$0" -- "$@") ||__expression_may_fail
 
 eval "set -- $parsed_options2"
 parsed_options=("$@")
@@ -26,12 +26,12 @@ while (( i<len )); do
 	case "${parsed_options[i]}" in
 		--transport)
 			transport="${parsed_options[i+1]}"
-			((i++))||:
+			((i++))||__expression_may_fail
 			;;
 		--route-configuration-file)
 			route_configuration_file_argument="${parsed_options[i+1]}"
 			indirect_call_by_route_file=true
-			((i++))||:
+			((i++))||__expression_may_fail
 			;;
 		--interactive)
 			routes_file="$__script_path/configuration/INTERACTIVE.desynchronize"
@@ -45,7 +45,7 @@ while (( i<len )); do
 			;;
 	esac
 
-	((i++))||:
+	((i++))||__expression_may_fail
 done
 
 set -- "${input_parameters[@]}"
@@ -90,7 +90,7 @@ if $find_route; then
 			done
 			original_program_arguments=("${new_array[@]}")
 			original_program_arguments+=("--non-cli")
-			shift ||:
+			shift ||__expression_may_fail
 		elif (( ${#routes_files[@]} == 0 )); then
 			echo>&2 -e "ERROR: No route definition file found! (search expression: *.desynchronize)"
 
@@ -138,7 +138,6 @@ fi
 route_name="${routes_file%.*}"
 
 if [[ -n "${1:-}" ]]; then
-
 	#remove current program argument $1 from $original_program_arguments
 	new_array=()
 	index_removed=0
@@ -152,7 +151,7 @@ if [[ -n "${1:-}" ]]; then
 	done
 	original_program_arguments=("${new_array[@]}")
 	original_program_arguments+=("--select-path=$1")
-	shift ||:
+	shift ||__expression_may_fail
 fi
 
 if ! $indirect_call_by_route_file; then
@@ -160,12 +159,12 @@ if ! $indirect_call_by_route_file; then
 	set -- "$@" "${original_program_arguments[@]}"
 
 	# shellcheck disable=SC1090
-	source -- "$routes_file"
+	source -- "$routes_file" || exit 1
 
 	exit
 fi
 
-source -- "$__script_path/library/$transport"
+source -- "$__script_path/library/$transport" || exit 1
 route_base_name="$(basename -- "$route_name")"
 
 # main
@@ -195,7 +194,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	ignore_path=""
 	select_path=""
 	default_filter_rules_file=""
-	debug=false
 	target_backup_directory_path_changed=false
 	source_backup_directory_path_exclude_changed=false
 	direction=""
@@ -209,7 +207,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	source=""
 	target=""
 	is_compact_format=false
-	verbose=false
 	simulate=false
 	verify=false
 	ignore_directories=false
@@ -222,14 +219,14 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	done
 
 	long_options="select-path::,ignore-path::,output-template::,output-description::,non-cli,simulate,verify,ignore-directories,debug,verbose,compact-format,create-archive::,create-mirror::,create-copy::,sync-remote::,direction::,source::,target::,source-pre-hook::,source-post-hook::,target-pre-hook::,target-post-hook::,target-backup-directory-path::,source-backup-directory-path-exclude::"
-	parsed_options2=$(getopt --options="::" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") ||:
+	parsed_options2=$(getopt --options="::" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") ||__expression_may_fail
 
 	# shellcheck disable=SC2128
 	eval "set -- $parsed_options2"
 	parsed_options=("$@")
 	set -- "${original_program_arguments[@]}"
 
-	len=${#parsed_options[@]}
+	len="${#parsed_options[@]}"
 	i=0
 	while (( i<len )); do
 		case "${parsed_options[i]}" in
@@ -239,38 +236,35 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				#structure_postfix=".desynchronized.archive"
 				target_directory_name="${parsed_options[i+1]}"
 				if [[ -z "$target_directory_name" ]]; then
-					echo>&2 -e "ERROR: --create-archive requires value target_directory_name."
-
-					exit 1
+					__error "--create-archive requires value target_directory_name."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--create-mirror)
 				is_mirror=true
 				#structure_postfix=".desynchronized.mirror"
 				target_directory_name="${parsed_options[i+1]}"
 				if [[ -z "$target_directory_name" ]]; then
-					echo>&2 -e "ERROR: --create-mirror requires value target_directory_name."
-
-					exit 1
+					__error "--create-mirror requires value target_directory_name."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--create-copy)
 				is_copy=true
 				#structure_postfix=".desynchronized.copy"
 				target_directory_name="${parsed_options[i+1]}" # allowed to be empty
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--sync-remote) #@todo fixme synchronize !!!
 				is_sync=true
 				remote_host_name="${parsed_options[i+1]}"
 				if [[ -z "$remote_host_name" ]]; then
-					echo>&2 -e "ERROR: --sync-remote requires value remote_host_name."
-
-					exit 1
+					__error "--sync-remote requires value remote_host_name."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--compact-format)
 				is_compact_format=true
@@ -278,135 +272,121 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			--target)
 				target="${parsed_options[i+1]}"
 				if [[ -z "$target" ]]; then
-					echo>&2 -e "ERROR: --target must have a value."
-
-					exit 1
+					__error "--target must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--source)
 				source="${parsed_options[i+1]}"
 				if [[ -z "$source" ]]; then
-					echo>&2 -e "ERROR: --source must have a value."
-
-					exit 1
+					__error "--source must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--output-description)
 				description="${parsed_options[i+1]}"
 				if [[ -z "$description" ]]; then
-					echo>&2 -e "ERROR: --output-description must have a value."
-
-					exit 1
+					__error "--output-description must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--output-template)
 				template="${parsed_options[i+1]}"
 				if [[ -z "$template" ]]; then
-					echo>&2 -e "ERROR: --output-template must have a value."
-
-					exit 1
+					__error "--output-template must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--source-pre-hook)
 				source_pre_hook="${parsed_options[i+1]}"
 				if [[ -z "$source_pre_hook" ]]; then
-					echo>&2 -e "ERROR: --source-pre-hook must have a value."
-
-					exit 1
+					__error "--source-pre-hook must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--source-post-hook)
 				source_post_hook="${parsed_options[i+1]}"
 				if [[ -z "$source_post_hook" ]]; then
-					echo>&2 -e "ERROR: --source-post-hook must have a value."
-
-					exit 1
+					__error "--source-post-hook must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--target-pre-hook)
 				target_pre_hook="${parsed_options[i+1]}"
 				if [[ -z "$target_pre_hook" ]]; then
-					echo>&2 -e "ERROR: --target-pre-hook must have a value."
-
-					exit 1
+					__error "--target-pre-hook must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--target-post-hook)
 				target_post_hook="${parsed_options[i+1]}"
 				if [[ -z "$target_post_hook" ]]; then
-					echo>&2 -e "ERROR: --target-post-hook must have a value."
-
-					exit 1
+					__error "--target-post-hook must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--select-path)
 				select_path="${parsed_options[i+1]}"
 				if [[ -z "$select_path" ]]; then
-					echo>&2 -e "ERROR: --select-path must have a value."
-
-					exit 1
+					__error "--select-path must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--ignore-path)
 				ignore_path="${parsed_options[i+1]}"
 				if [[ -z "$ignore_path" ]]; then
-					echo>&2 -e "ERROR: --ignore-path must have a value."
-
-					exit 1
+					__error "--ignore-path must have a value."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--direction)
 				direction="${parsed_options[i+1]}"
 				if [[ -z "$direction" ]]; then
-					echo>&2 -e "ERROR: --direction must have a value."
-
-					exit 1
+					__error "--direction must have a value."
+					local_exit_failsafe
 				fi
 				if [[ "$direction" != "upload" && "$direction" != "download" ]]; then
-					echo>&2 -e "ERROR: --direction must either be 'upload' or 'download', you specified '$direction'."
-
-					exit 1
+					__error "--direction must either be 'upload' or 'download', you specified %s." "$direction"
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--target-backup-directory-path)
 				target_backup_directory_path="${parsed_options[i+1]}"
 				target_backup_directory_path_changed=true
 				if [[ "${target_backup_directory_path:0:1}" == "/" ]]; then
-					echo>&2 -e "ERROR: --target-backup-directory-path cannot be an absolute path."
-
-					exit 1
+					__error "--target-backup-directory-path cannot be an absolute path."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--source-backup-directory-path-exclude)
 				source_backup_directory_path_exclude="${parsed_options[i+1]}"
 				source_backup_directory_path_exclude_changed=true
 				if [[ "${source_backup_directory_path_exclude:0:1}" == "/" ]]; then
-					echo>&2 -e "ERROR: --source-backup-directory-path-exclude cannot be an absolute path."
-
-					exit 1
+					__error "--source-backup-directory-path-exclude cannot be an absolute path."
+					local_exit_failsafe
 				fi
-				((i++))||:
+				((i++))||__expression_may_fail
 				;;
 			--non-cli)
 				is_cli=false
 				;;
 			--debug)
-				debug=true
+				__debug=true
 				;;
 			--verbose)
-				verbose=true
+				__verbose=true
 				;;
 			--ignore-directories)
 				ignore_directories=true
@@ -419,21 +399,19 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 				;;
 			--)
 				if [[ -n "${parsed_options[i+1]:-}" ]]; then
-					echo>&2 "Unexpected parameter: ${parsed_options[i+1]:-}"
-
-					exit 1
+					__error "Unexpected parameter: ${parsed_options[i+1]:-}"
+					local_exit_failsafe
 				fi
 
-				((i++))||:
+				((i++))||__expression_may_fail
 				break
 				;;
 			*)
-				echo>&2 "ERROR: UNKNOWN PARAMETER: ${parsed_options[i]}"
-
-				exit 1
+				__error "UNKNOWN PARAMETER: ${parsed_options[i]}"
+				local_exit_failsafe
 				;;
 		esac
-		((i++))||:
+		((i++))||__expression_may_fail
 	done
 
 	if [[ -z "$description" ]]; then
@@ -490,17 +468,16 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	interactive_data_user_confirmed=false
 
-	while ! $interactive_data_user_confirmed; do
-		#@todo fixme, also, missing section for rclone, this is for rsync
+	while ! $interactive_data_user_confirmed; do #@todo interactive dialog – also, missing section for rclone, this is for rsync
 		while [[ -z "$source" ]]; do
 			interactive=true
-			read -rp "Enter source: " "source" ||:
+			read -rp "Enter source: " "source" ||__expression_may_fail
 			[[ -n "$source" ]] && break
 		done
 
 		while [[ -z "$target" ]]; do
 			interactive=true
-			read -rp "Enter target: " "target" ||:
+			read -rp "Enter target: " "target" ||__expression_may_fail
 			[[ -n "$source" ]] && break
 		done
 
@@ -508,7 +485,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 			echo "Source: $source"
 			echo "Target: $target"
 
-			read -rp "Is this correct? (Y/N): " "confirm" ||:
+			read -rp "Is this correct? (Y/N): " "confirm" ||__expression_may_fail
 			[[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]] && break
 			source=""
 			target=""
@@ -520,7 +497,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	if $is_cli; then
 		show_banner=true
 		show_more=false
-		verbose=true
+		__verbose=true
 	else
 		show_banner=false
 		show_more=true
@@ -548,7 +525,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		default_filter_rules_file="$__script_path/configuration/default-select-path.filter-rules.$transport"
 	fi
 
-	# @todo hooks will not work with rclone !?
+	# @todo hooks will not work with rclone !? ANd test and fix the hooks, I don't use them currently
 	if [[ -n "$source_pre_hook" ]]; then
 		if [[ "${source_pre_hook:0:1}" != "/" ]]; then
 			source_pre_hook="$source/$source_pre_hook"
@@ -633,7 +610,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		target="$target/$select_path"
 	fi
 
-	if $debug; then
+	if $__debug; then
 		echo -ne "\n\n forwarded_parameters:\n"
 		for queue_configuration_option2 in "${forwarded_parameters[@]}"; do
 			echo -e "\t* $queue_configuration_option2"
@@ -760,11 +737,6 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
         fi
 		route_type="SYNC"
 		if [[ "$direction" == "download" ]]; then
-			#host_prepend="$remote_host_name:"
-			#if [[ "${source:0:1}" != "/" ]]; then
-			#	host_prepend="$remote_host_name:/"
-			#fi
-       	 	#source="$host_prepend$source"
        	 	source="$remote_host_name:/$(__right_normalize_absolute_path "$source")"
 
 			target_directory_name="$(basename -- "$root_target")"
@@ -788,22 +760,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
         		exit 1
         	fi
         elif [[ "$direction" == "upload" ]]; then
-			#host_prepend="$remote_host_name:"
-			#if [[ "${target:0:1}" != "/" ]]; then
-			#	host_prepend="$remote_host_name://"
-			#fi
-       	 	#target="$host_prepend$target"
-
        	 	target="$remote_host_name:/$(__right_normalize_absolute_path "$target")"
 
 			source_directory_name="$(basename -- "$root_source")"
 			synchronizer_application_data_path="$(realpath --quiet --no-symlinks --canonicalize-missing "$root_source/../$source_directory_name.desynchronizer/$current_date_as_string")"
-
-			#host_prepend="$remote_host_name:"
-			#if [[ "${root_target:0:1}" != "/" ]]; then
-			#	host_prepend="$remote_host_name://"
-			#fi
-       	 	#root_target1="$host_prepend$root_target"
 
        	 	root_target1="$remote_host_name:/$(__right_normalize_absolute_path "$root_target")"
 
@@ -893,49 +853,48 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	fi
 
 	if $simulate; then
-		$debug && echo "SIMULATE ON"
+		$__debug && echo "SIMULATE ON"
 		custom_options+=("--dry-run")
 	fi
 	if $verify; then
-		$debug && echo "VALIDATE ON"
+		$__debug && echo "VALIDATE ON"
 		custom_options+=("--checksum")
 	fi
 	if $ignore_directories; then
-		$debug && echo "IGNORE DIRECTORIES ON"
+		$__debug && echo "IGNORE DIRECTORIES ON"
 		custom_options+=(--exclude='__IGNORED🖧/')
 		custom_options+=(--filter='hide __IGNORED🖧/')
 		custom_options+=(--filter='protect __IGNORED🖧/')
 	fi
 
-	if $verbose; then
-		read -r -p "Press enter to continue…1" ||:
+	if $__verbose; then
+		read -r -p "Press enter to continue…" ||__expression_may_fail
 		__nclr 1
 
 		echo -en "\nROUTE CONFIGURATION\n\n"
 		for option in "${queue_parameters[@]}"; do
-			if $debug || (! $debug && [[ ! "$option" =~ --output-* ]]); then
+			if $__debug || (! $__debug && [[ ! "$option" =~ --output-* ]]); then
 				echo -e "\t\t─  '$option'"
 			fi
 		done
 
 		echo -en "\n\n"
-		read -r -p "Press enter to continue…2" ||:
+		read -r -p "Press enter to continue…" ||__expression_may_fail
 		__nclr 0
 
 		echo -e "COMPLETE RSYNC SHELL COMMAND LINE STRING:\n"
-		#echo -e "\trsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file"
 		transport_as_string
 
 		echo -ne "\n\n\n"
 
-		read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||:
+		read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||__expression_may_fail
 		__nclr 0
 	else
 		if $is_cli; then
-			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||:
+			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||__expression_may_fail
 			__nclr 0
 		else
-			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||:
+			read -r -p "Please review this configuration, and then press the enter or data release key to start the final desynchronization process…" ||__expression_may_fail
 			__nclr 0
         fi
 	fi
@@ -949,15 +908,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	[[ -n "$source_pre_hook" ]] && (cd -- "$source" && "$source_pre_hook" "pre" "source" "$simulate" )
 	[[ -n "$target_pre_hook" ]] && (cd -- "$target" && "$target_pre_hook" "pre" "target" "$simulate" )
 
-	#echo -e "rsync" "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" "2> $error_log_file" > "$synchronizer_application_data_path/CMD"
-
 	transport_as_string > "$synchronizer_application_data_path/CMD"
 
-	# --max-alloc=5g
-	#rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" 2> "$error_log_file"||:
-
 	set -x
-	start_transport ||:
+	start_transport ||__expression_may_fail
 	set +x
 
 	cat -- "$error_log_file"

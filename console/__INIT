@@ -4,8 +4,8 @@ source -- ~/"bin/common-library.current"
 __set_script_path
 __on_sigint_set_interrupted_flag
 
-bash --rcfile "./bashrc" -- ||:
-#bash --restricted --rcfile "./bashrc" -- ||:
+bash --rcfile "./bashrc" -- ||__expression_may_fail
+#bash --restricted --rcfile "./bashrc" -- ||__expression_may_fail
 
 echo "EXIT DESYNCHRONIZER INPUT CONSOLE"
 

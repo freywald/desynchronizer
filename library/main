@@ -1,9 +1,10 @@
 #!/bin/bash
 __DESYNCHRONIZER_INCLUDE_ONCE_LIBRARY="true"
 
-source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/")/base"
+source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/")/base" || exit 1
 __set_script_path
 __enable_error_handler
+function local_exit_failsafe() { __exit_failsafe; exit 1; }
 
 routes_file=""
 indirect_call_by_route_file=false
@@ -15,6 +16,6 @@ function desynchronize_with_configuration() {
 	# linearized array data with arbitrary wideness
 	queue_configuration_options+=("$@")
 	queue_configuration_options_wideness+=($#)
-	((queue_configuration_options_count++))||:
+	((queue_configuration_options_count++))||__expression_may_fail
 }
 

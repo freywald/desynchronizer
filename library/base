@@ -6,5 +6,3 @@ if [[ -f "$library_path/FORCE_EXTERNAL_LIBRARY" ]] || [[ -L "$library_path/exter
 else
 	source -- "$library_path/common-library.v2"
 fi
-
-

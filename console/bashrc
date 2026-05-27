@@ -64,9 +64,9 @@ _desynchronize_only() {
 }
 
 # REMOVE any default bash-completion installed
-complete -r -D 2>/dev/null ||:
-complete -r -E 2>/dev/null ||:
-complete -r -I 2>/dev/null ||:
+complete -r -D 2>/dev/null ||__expression_may_fail
+complete -r -E 2>/dev/null ||__expression_may_fail
+complete -r -I 2>/dev/null ||__expression_may_fail
 
 complete -I -F _desynchronize_only -o filenames # first word on the line (DA<Tab>, ./DATEN<Tab>)
 complete -E -F _desynchronize_only -o filenames # completely empty line + Tab
