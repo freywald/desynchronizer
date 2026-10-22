@@ -6,5 +6,5 @@ function transport_as_string() {
 
 function start_transport() {
 	# unused: --max-alloc=5g
-	rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" 2> "$error_log_file" ||__expression_may_fail
+	2> >(tee -a  -- "$error_log_file" | tee -a  -- "$full_log_file" >&2) rsync "${custom_options[@]}" -habHAXE --delete --delete-excluded --info=progress2 --inplace --backup --force --progress --stats --log-file="$full_log_file" --backup-dir="$backup_directory" "${options_that_take_precedence_last[@]}" -- "$source/" "$target/" | tee -a  -- "$full_log_file" ||__expression_may_fail
 }

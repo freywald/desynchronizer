@@ -900,7 +900,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 	fi
 
 	if ! $simulate && $apply_seal; then
-		echo -ne "removing seal from '$target' …"
+		echo -ne "removing seal from '$target'… "
 		sudo chattr -R -i -- "$target/" 2>"/dev/null"
 		echo -ne "done!\n"
 	fi
@@ -950,6 +950,8 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 
 	[[ -f "$full_log_file" && ! -s "$full_log_file" ]] && rm -- "$full_log_file"
 	[[ -f "$error_log_file" && ! -s "$error_log_file" ]] && rm -- "$error_log_file"
+
+	# https://x.com/i/grok?conversation=2061622046849659024
 
 	if ! $simulate && $apply_seal; then
 		echo -ne "\n"

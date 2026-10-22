@@ -1,0 +1,957 @@
+#!/bin/bash
+
+source -- "$HOME/bin/bin-base" || exit 1
+
+usage() {
+  cat <<'EOF'
+Usage: path-derot --avert-expected-rot [--freeze] [--gzip] [--no-sudo] [--allow-mountpoint]
+                  [--archive-path=DIR] [--archive-file-name=NAME] DIR
+       path-derot --immutalize-in-place [--no-sudo] DIR
+       path-derot --fast-immutalize-in-place [--no-sudo] DIR
+       path-derot --unfreeze [--no-sudo] DIR
+       path-derot --verify-unforeseen-rot [--keep-rotten] [--skip-archive-test]
+                  [--archive-path=DIR] [--archive-file-name=NAME] DIR
+       path-derot --audit-archive [--archive-path=DIR] [--archive-file-name=NAME] DIR
+       path-derot --help
+
+Method 1  --avert-expected-rot
+      Write DIR/SHA256SUMS and, on the same filesystem as DIR/..,
+      ../DIRNAME.tar plus ../DIRNAME.SHA256SUMS.
+      If DIR/.. is another filesystem, refuse and require --archive-path.
+      --gzip                 write DIRNAME.tar.gz instead of .tar
+      --freeze               seal DIR first
+      --allow-mountpoint     archive even if DIR is a mountpoint
+      --archive-path=DIR     directory for tar, sidecar, log, lock, restore
+                             (must contain a / )
+      --archive-file-name=NAME
+                             basename only of the tar inside --archive-path
+
+Method 3  --immutalize-in-place
+      Seal DIR, write only DIR/SHA256SUMS, no tar.
+
+Method 2  --fast-immutalize-in-place
+      Seal DIR only.
+
+          --unfreeze
+      Blindly chattr -R -i on DIR.
+
+Verify    --verify-unforeseen-rot
+      Prove DIR is unchanged via SHA256SUMS. Restore only failures.
+      --keep-rotten          report, do not restore
+      --skip-archive-test    skip tar -t before restore
+
+          --audit-archive
+      SHA-256 every listed tar member against the hashfile.
+
+DIR itself is never written by verify/restore/audit.
+EOF
+}
+
+mode=""
+do_freeze=false
+keep_rotten=false
+skip_archive_test=false
+use_sudo=true
+allow_mountpoint=false
+do_gzip=false
+archive_file_name_opt=""
+archive_path_opt=""
+positional=()
+
+for arg in "$@"; do
+  case "$arg" in
+    --avert-expected-rot)
+      [[ -n "$mode" ]] && __error "Already specified mode %s" "$mode"
+      mode="avert"
+      ;;
+    --immutalize-in-place)
+      [[ -n "$mode" ]] && __error "Already specified mode %s" "$mode"
+      mode="seal_hash"
+      ;;
+    --fast-immutalize-in-place)
+      [[ -n "$mode" ]] && __error "Already specified mode %s" "$mode"
+      mode="seal_only"
+      ;;
+    --unfreeze)
+      [[ -n "$mode" ]] && __error "Already specified mode %s" "$mode"
+      mode="unfreeze"
+      ;;
+    --verify-unforeseen-rot)
+      [[ -n "$mode" ]] && __error "Already specified mode %s" "$mode"
+      mode="verify"
+      ;;
+    --audit-archive)
+      [[ -n "$mode" ]] && __error "Already specified mode %s" "$mode"
+      mode="audit_archive"
+      ;;
+    --freeze) do_freeze=true ;;
+    --gzip) do_gzip=true ;;
+    --keep-rotten) keep_rotten=true ;;
+    --skip-archive-test) skip_archive_test=true ;;
+    --allow-mountpoint) allow_mountpoint=true ;;
+    --no-sudo) use_sudo=false ;;
+    --debug) __debug=true ;;
+    --verbose) __verbose=true ;;
+    --quiet) __quiet=true ;;
+    --archive-path=*) archive_path_opt="${arg#--archive-path=}" ;;
+    --archive-path)
+      __error '%s' "--archive-path requires --archive-path=DIR"
+      ;;
+    --archive-file-name=*) archive_file_name_opt="${arg#--archive-file-name=}" ;;
+    --archive-file-name)
+      __error '%s' "--archive-file-name requires --archive-file-name=NAME"
+      ;;
+    --help) usage; exit 0 ;;
+    --*)
+      usage >&2
+      __error 'unknown option: %s' "$arg"
+      ;;
+    *) positional+=("$arg") ;;
+  esac
+done
+
+if [[ -z "$mode" ]]; then
+  usage >&2
+  __error '%s' "need one of --avert-expected-rot, --immutalize-in-place, --fast-immutalize-in-place, --unfreeze, --verify-unforeseen-rot, --audit-archive"
+fi
+if [[ "$mode" != avert && "$do_freeze" == true ]]; then
+  __error '%s' "--freeze is only valid with --avert-expected-rot"
+fi
+if [[ "$mode" != avert && "$do_gzip" == true ]]; then
+  __error '%s' "--gzip is only valid with --avert-expected-rot"
+fi
+if [[ "$mode" != avert && "$allow_mountpoint" == true ]]; then
+  __error '%s' "--allow-mountpoint is only valid with --avert-expected-rot"
+fi
+if [[ "$mode" != verify && "$keep_rotten" == true ]]; then
+  __error '%s' "--keep-rotten is only valid with --verify-unforeseen-rot"
+fi
+if [[ "$mode" != verify && "$skip_archive_test" == true ]]; then
+  __error '%s' "--skip-archive-test is only valid with --verify-unforeseen-rot"
+fi
+if [[ "$mode" != avert && "$mode" != verify && "$mode" != audit_archive && -n "$archive_path_opt" ]]; then
+  __error '%s' "--archive-path is only valid with --avert-expected-rot, --verify-unforeseen-rot or --audit-archive"
+fi
+if [[ "$mode" != avert && "$mode" != verify && "$mode" != audit_archive && -n "$archive_file_name_opt" ]]; then
+  __error '%s' "--archive-file-name is only valid with --avert-expected-rot, --verify-unforeseen-rot or --audit-archive"
+fi
+if [[ "${#positional[@]}" -ne 1 ]]; then
+  usage >&2
+  __error '%s' "need exactly one DIR"
+fi
+
+if [[ -n "$archive_path_opt" && "$archive_path_opt" != */* ]]; then
+  __error '%s' "--archive-path must contain a path separator (use ./name or /abs/name)"
+fi
+if [[ -n "$archive_file_name_opt" ]]; then
+  if [[ "$archive_file_name_opt" == */* || "$archive_file_name_opt" == */ ]]; then
+    __error '%s' "--archive-file-name must be a basename, not a path"
+  fi
+  if [[ "$archive_file_name_opt" == "." || "$archive_file_name_opt" == ".." || -z "$archive_file_name_opt" ]]; then
+    __error '%s' "--archive-file-name is not a usable basename"
+  fi
+fi
+
+need() {
+  command -v "$1" >| /dev/null || __error 'need %s' "$1"
+}
+need find
+need sort
+need comm
+need sha256sum
+need realpath
+need basename
+need dirname
+need stat
+need date
+need awk
+need mktemp
+need lsattr
+need chattr
+need python3
+need flock
+need mountpoint
+need tar
+if $do_gzip; then
+  need gzip
+fi
+if [[ "$mode" == verify || "$mode" == audit_archive ]]; then
+  need cmp
+fi
+
+dir_in="${positional[0]}"
+
+resolve_dir() {
+  if [[ "$mode" == verify || "$mode" == audit_archive ]]; then
+    if [[ -d "$dir_in" ]]; then
+      dir="$(realpath "$dir_in")"
+    else
+      dir="$(realpath -m "$dir_in")"
+    fi
+  else
+    if [[ ! -d "$dir_in" ]]; then
+      __error 'DIR is not a directory: %s' "$dir_in"
+    fi
+    dir="$(realpath "$dir_in")"
+  fi
+}
+
+same_filesystem() {
+  local a="$1" b="$2"
+  [[ -e "$a" && -e "$b" ]] || return 1
+  [[ "$(stat -c %d "$a")" == "$(stat -c %d "$b")" ]]
+}
+
+resolve_dir
+parent="$(dirname "$dir")"
+name="$(basename "$dir")"
+if [[ -z "$name" || "$dir" == "$parent" ]]; then
+  __error 'refusing filesystem root: %s' "$dir"
+fi
+
+if [[ -n "$archive_path_opt" ]]; then
+  mkdir -p "$archive_path_opt"
+  dest_dir="$(realpath "$archive_path_opt")"
+  if [[ -d "$dir" ]] && ! same_filesystem "$dest_dir" "$dir"; then
+    __warn 'archive-path %s is on another filesystem than %s' "$dest_dir" "$dir"
+    if ! __confirm "continue writing/reading spare files on $dest_dir ?"; then
+      __error '%s' "ABORT user declined cross-filesystem archive-path"
+    fi
+  fi
+elif [[ "$mode" == avert || "$mode" == verify || "$mode" == audit_archive ]]; then
+  if same_filesystem "$dir" "$parent"; then
+    dest_dir="$parent"
+  elif [[ "$mode" == avert ]]; then
+    __error '%s' "DIR/.. is another filesystem ($parent). refuse to write spare files there. rerun with --archive-path=DIR"
+  else
+    dest_dir=""
+  fi
+else
+  dest_dir="$parent"
+fi
+
+default_tar=""
+default_tgz=""
+if [[ -n "$dest_dir" ]]; then
+  default_tar="$dest_dir/$name.tar"
+  default_tgz="$dest_dir/$name.tar.gz"
+fi
+
+if [[ -n "$archive_file_name_opt" ]]; then
+  if [[ -z "$dest_dir" ]]; then
+    __error '%s' "--archive-file-name needs --archive-path=DIR (DIR/.. is not usable)"
+  fi
+  archive_path="$dest_dir/$archive_file_name_opt"
+elif [[ "$mode" == avert ]]; then
+  if $do_gzip; then
+    archive_path="$default_tgz"
+  else
+    archive_path="$default_tar"
+  fi
+elif [[ -n "$default_tar" && -f "$default_tar" && -f "$default_tgz" ]]; then
+  archive_path="$default_tar"
+elif [[ -n "$default_tgz" && -f "$default_tgz" ]]; then
+  archive_path="$default_tgz"
+else
+  archive_path="${default_tar:-}"
+fi
+
+if [[ -n "$archive_path" ]]; then
+  sidecar="${archive_path%.tar.gz}"
+  sidecar="${sidecar%.tar}.SHA256SUMS"
+else
+  sidecar=""
+fi
+inner="$dir/SHA256SUMS"
+if [[ -n "$dest_dir" ]]; then
+  log_path="$dest_dir/path-derot-${name}-${__current_date}.log"
+  restore_root="$dest_dir/derot-restoration-${__current_date}"
+  lock_file="$dest_dir/path-derot-${name}.lock"
+  mkdir -p "$dest_dir"
+else
+  log_path="${TMPDIR:-/tmp}/path-derot-${name}-${__current_date}.log"
+  restore_root="${TMPDIR:-/tmp}/derot-restoration-${__current_date}"
+  lock_file="${TMPDIR:-/tmp}/path-derot-${name}.lock"
+  mkdir -p "${TMPDIR:-/tmp}"
+fi
+
+count_hashed=0
+count_ok=0
+count_missing_live=0
+count_missing_archive=0
+count_new=0
+count_hash_fail=0
+count_mtime_note=0
+count_restored=0
+count_restore_fail=0
+count_seen=0
+hashfiles_differ=false
+trusted_sums=""
+restore_ok=false
+exit_rc=0
+parse_hash=""
+parse_rel=""
+parse_mtime=""
+
+log() {
+  printf '%s\n' "$*" >> "$log_path"
+}
+
+start_log() {
+  : >| "$log_path"
+  take_lock
+  __debug 'mode=%s freeze=%s gzip=%s skip_archive_test=%s keep_rotten=%s use_sudo=%s' \
+    "$mode" "$do_freeze" "$do_gzip" "$skip_archive_test" "$keep_rotten" "$use_sudo"
+  __debug 'dir=%s dest_dir=%s' "$dir" "${dest_dir:-none}"
+  __debug 'date=%s' "$__current_date"
+  __debug 'archive=%s sidecar=%s inner=%s' "${archive_path:-none}" "${sidecar:-none}" "$inner"
+  log "start mode=$mode dir=$dir archive=${archive_path:-none}"
+}
+
+heartbeat() {
+  count_seen=$((count_seen + 1))
+  if (( count_seen % 1000 == 0 )); then
+    __info 'still reading files… (%s)' "$count_seen"
+  fi
+}
+
+take_lock() {
+  if ! exec {lock_fd}>|"$lock_file"; then
+    __error 'cannot open lock file: %s' "$lock_file"
+  fi
+  if ! flock -n "$lock_fd"; then
+    __error 'another path-derot run holds %s' "$lock_file"
+  fi
+  __debug 'flock=%s' "$lock_file"
+}
+
+refuse_if_mountpoint() {
+  if ! mountpoint -q "$dir"; then
+    return 0
+  fi
+  if $allow_mountpoint; then
+    __warn 'mountpoint allowed: %s' "$dir"
+    return 0
+  fi
+  __error 'DIR is a mountpoint (%s); refuse to archive/recurse. pass --allow-mountpoint if that is intended' "$dir"
+}
+
+tree_has_immutable() {
+  local root="$1" line attrs
+  [[ -d "$root" ]] || return 1
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    attrs="${line%%[[:space:]]*}"
+    case "$attrs" in
+      *i*) return 0 ;;
+    esac
+  done < <(find "$root" -exec lsattr -d -- {} + 2>| /dev/null || true)
+  return 1
+}
+
+require_no_immutable() {
+  if tree_has_immutable "$dir"; then
+    __warn 'immutable already set: %s' "$dir"
+    __error '%s' "if you intend to clear the seal, run: path-derot --unfreeze $dir"
+  fi
+}
+
+mask_path() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+unmask_into() {
+  local dest="$1"
+  local s="$2"
+  local out="" i=0 len="${#s}" c n
+  while (( i < len )); do
+    c="${s:i:1}"
+    if [[ "$c" == '\' ]]; then
+      n="${s:i+1:1}"
+      case "$n" in
+        n)  out+=$'\n'; i=$((i + 2)) ||: ;;
+        r)  out+=$'\r'; i=$((i + 2)) ||: ;;
+        t)  out+=$'\t'; i=$((i + 2)) ||: ;;
+        \\) out+='\';   i=$((i + 2)) ||: ;;
+        *)  out+="$c";  i=$((i + 1)) ||: ;;
+      esac
+      continue
+    fi
+    out+="$c"
+    i=$((i + 1)) ||:
+  done
+  printf -v "$dest" '%s' "$out"
+}
+
+run_chattr() {
+  local rc=0
+  if [[ "$(id -u)" -eq 0 || "$use_sudo" != true ]]; then
+    if chattr "$@"; then
+      return 0
+    fi
+    rc=$?
+    __warn 'chattr failed as %s (status %s): chattr %s' "$(id -un)" "$rc" "$*"
+    __warn '%s' "immutable flags need CAP_LINUX_IMMUTABLE, not just file ownership"
+    return "$rc"
+  fi
+
+  if ! command -v sudo >| /dev/null; then
+    __warn '%s' "sudo not available; retry with --no-sudo as root, or install sudo"
+    return 1
+  fi
+
+  __debug 'sudo chattr %s' "$*"
+  if sudo chattr "$@"; then
+    return 0
+  fi
+  rc=$?
+  __warn 'sudo chattr failed (status %s): sudo chattr %s' "$rc" "$*"
+  return "$rc"
+}
+
+seal_tree() {
+  if ! run_chattr -R +i -- "$dir"; then
+    __warn 'check: lsattr -d -- %s' "$dir"
+    __error 'could not seal %s' "$dir"
+  fi
+}
+
+unseal_tree() {
+  if ! run_chattr -R -i -- "$dir"; then
+    __warn 'check: lsattr -d -- %s' "$dir"
+    __error 'could not unfreeze %s' "$dir"
+  fi
+}
+
+unseal_dir_only() {
+  if ! run_chattr -i -- "$dir"; then
+    __error 'could not unseal directory inode %s' "$dir"
+  fi
+}
+
+reseal_dir_and_hashfile() {
+  if [[ -f "$inner" ]]; then
+    if ! run_chattr +i -- "$inner"; then
+      __error 'could not seal %s' "$inner"
+    fi
+  fi
+  if ! run_chattr +i -- "$dir"; then
+    __error 'could not reseal directory %s' "$dir"
+  fi
+}
+
+file_mtime() {
+  date -d "$(stat -c %y "$1")" +%Y%m%d%H%M%S 2>| /dev/null || true
+}
+
+file_hash() {
+  sha256sum < "$1" | awk '{print $1}'
+}
+
+parse_sum_line() {
+  local line="$1" rest
+  parse_hash="${line%% *}"
+  parse_hash="${parse_hash#\\}"
+  rest="${line#*  }"
+  if [[ "$rest" == *$'\t'* ]]; then
+    parse_mtime="${rest##*$'\t'}"
+    parse_rel="${rest%%$'\t'*}"
+  else
+    parse_mtime=""
+    parse_rel="$rest"
+  fi
+  if [[ "$parse_rel" == *\\* ]]; then
+    unmask_into parse_rel "$parse_rel"
+  fi
+  parse_rel="${parse_rel#./}"
+}
+
+compute_sums_to() {
+  local dest="$1" rel hash mt esc rel_norm
+  : >| "$dest"
+  count_hashed=0
+  count_seen=0
+  __info 'hashing files in %s; this can take a while' "$dir"
+  while IFS= read -r -d '' rel; do
+    hash="$(file_hash "$dir/$rel")"
+    mt="$(file_mtime "$dir/$rel")"
+    rel_norm="${rel#./}"
+    esc="$(mask_path "./$rel_norm")"
+    printf '%s  %s\t%s\n' "$hash" "$esc" "$mt" >> "$dest"
+    count_hashed=$((count_hashed + 1))
+    heartbeat
+  done < <(
+    cd "$dir" || exit 1
+    find . -type f ! -name SHA256SUMS ! -name '.SHA256SUMS.*' -print0 | LC_ALL=C sort -z
+  )
+  __info 'hashed %s files' "$count_hashed"
+}
+
+install_inner_sums() {
+  local tmp="$1"
+  unseal_dir_only
+  mv -f "$tmp" "$inner"
+  reseal_dir_and_hashfile
+}
+
+note_mtime() {
+  local live="$1" recorded="$2" live_ts
+  live_ts="$(file_mtime "$live")"
+  if [[ -n "$recorded" && -n "$live_ts" && "$recorded" != "$live_ts" ]]; then
+    count_mtime_note=$((count_mtime_note + 1))
+    __warn 'mtime changed: live=%s recorded=%s (content also differs)' "$live_ts" "$recorded"
+  elif [[ -n "$recorded" && -n "$live_ts" ]]; then
+    __warn 'mtime unchanged (%s) but content differs' "$live_ts"
+  elif [[ -n "$live_ts" ]]; then
+    count_mtime_note=$((count_mtime_note + 1))
+    __warn 'content differs; live mtime=%s (no recorded mtime)' "$live_ts"
+  else
+    __warn '%s' "content differs"
+  fi
+}
+
+choose_hashfile() {
+  local have_sidecar=false have_inner=false
+  [[ -n "$sidecar" && -f "$sidecar" ]] && have_sidecar=true
+  [[ -f "$inner" ]] && have_inner=true
+
+  if $have_sidecar && $have_inner; then
+    if cmp -s "$sidecar" "$inner"; then
+      __info 'hashfiles identical: %s' "$sidecar"
+      trusted_sums="$sidecar"
+    else
+      hashfiles_differ=true
+      __warn 'hashfiles differ; trusting sidecar (belongs to the archive): %s' "$sidecar"
+      __warn 'less confidence: %s' "$inner"
+      log "WARN hashfiles differ sidecar=$sidecar inner=$inner"
+      if ! __confirm "continue using sidecar $sidecar ?"; then
+        __error '%s' "ABORT user declined sidecar"
+      fi
+      trusted_sums="$sidecar"
+    fi
+  elif $have_sidecar; then
+    trusted_sums="$sidecar"
+    __info 'using sidecar: %s' "$sidecar"
+  elif $have_inner; then
+    __warn 'sidecar missing; inner has less confidence: %s' "$inner"
+    if ! __confirm "sidecar missing; continue with $inner ?"; then
+      __error '%s' "ABORT user declined inner fallback"
+    fi
+    trusted_sums="$inner"
+  else
+    __error 'no hashfile at %s or %s' "${sidecar:-none}" "$inner"
+  fi
+}
+
+choose_verify_inputs() {
+  local have_archive=false have_inner=false have_i=false
+
+  [[ -n "$archive_path" && -f "$archive_path" ]] && have_archive=true
+  [[ -f "$inner" ]] && have_inner=true
+  tree_has_immutable "$dir" && have_i=true
+
+  if [[ -n "$default_tar" && -f "$default_tar" && -f "$default_tgz" && -z "$archive_file_name_opt" ]]; then
+    __warn 'both %s and %s exist; using %s' "$default_tar" "$default_tgz" "$archive_path"
+    __warn '%s' "pass --archive-file-name=NAME to choose"
+  fi
+
+  __debug 'probe archive=%s exist=%s' "${archive_path:-none}" "$have_archive"
+  __debug 'probe inner=%s exist=%s immutable=%s' "$inner" "$have_inner" "$have_i"
+
+  if $have_archive; then
+    restore_ok=true
+    choose_hashfile
+    return 0
+  fi
+
+  restore_ok=false
+  if [[ -n "$archive_file_name_opt" ]]; then
+    __error '--archive-file-name not found in archive-path: %s' "$archive_path"
+  fi
+
+  if [[ -z "$dest_dir" ]]; then
+    __warn '%s' "DIR/.. is another filesystem; no default archive location"
+    __warn '%s' "rerun with --archive-path=DIR"
+  fi
+
+  if $have_inner && $have_i; then
+    __info '%s' "no archive found; dir is immutable; verify local list only"
+    if ! __confirm "verify local SHA256SUMS only (no restore)?"; then
+      __error '%s' "ABORT user declined method-3 verify"
+    fi
+    trusted_sums="$inner"
+    return 0
+  fi
+
+  if $have_inner && ! $have_i; then
+    __warn '%s' "no archive found and dir is not immutable"
+    if ! __confirm "continue hashfile-only using $inner (no restore)?"; then
+      __error '%s' "ABORT user declined hashfile-only fallback"
+    fi
+    trusted_sums="$inner"
+    return 0
+  fi
+
+  if ! $have_inner && $have_i; then
+    __error '%s' "dir is immutable and there is no SHA256SUMS and no archive; looks like --fast-immutalize-in-place; no content check is possible"
+  fi
+
+  __error '%s' "no archive and no $inner; rerun with --archive-path=DIR"
+}
+
+restore_batch() {
+  local list="$1"
+  local members dest rel member got expect
+
+  members="$(mktemp)"
+  : >| "$members"
+  while IFS=$'\t' read -r expect rel_masked; do
+    if [[ "$rel_masked" == *\\* ]]; then
+      unmask_into rel "$rel_masked"
+    else
+      rel="$rel_masked"
+    fi
+    rel="${rel#./}"
+    printf '%s\0' "$name/$rel" >> "$members"
+  done < "$list"
+
+  if ! $skip_archive_test; then
+    __info 'archive listing test: %s' "$archive_path"
+    if tar -tf "$archive_path" >| /dev/null; then
+      __verbose 'archive listing ok: %s' "$archive_path"
+    else
+      __warn 'archive listing failed: %s' "$archive_path"
+      log "WARN archive listing failed $archive_path"
+      exit_rc=1
+    fi
+  fi
+
+  mkdir -p "$restore_root"
+  __info 'restore root: %s' "$restore_root"
+  __info 'restore batch from %s' "$archive_path"
+  log "restore from $archive_path to $restore_root"
+
+  if ! tar --format=pax -x -f "$archive_path" \
+      -C "$restore_root" --strip-components=1 \
+      --null -T "$members"; then
+    __warn '%s' "restore batch extract failed"
+    log "WARN restore extract failed"
+    exit_rc=1
+  fi
+
+  while IFS=$'\t' read -r expect rel_masked; do
+    if [[ "$rel_masked" == *\\* ]]; then
+      unmask_into rel "$rel_masked"
+    else
+      rel="$rel_masked"
+    fi
+    rel="${rel#./}"
+    dest="$restore_root/$rel"
+    if [[ ! -f "$dest" ]]; then
+      __warn 'restore missing after extract: %s' "$rel"
+      log "RESTORE_MISSING $rel"
+      count_missing_archive=$((count_missing_archive + 1))
+      count_restore_fail=$((count_restore_fail + 1))
+      exit_rc=1
+      continue
+    fi
+    got="$(file_hash "$dest")"
+    if [[ "$got" == "$expect" ]]; then
+      __debug 'restored ok: %s' "$dest"
+      count_restored=$((count_restored + 1))
+    else
+      __warn 'restore hash mismatch: %s' "$rel"
+      log "RESTORE_HASH_FAIL $rel"
+      count_restore_fail=$((count_restore_fail + 1))
+      exit_rc=1
+    fi
+  done < "$list"
+
+  rm -f "$members"
+}
+
+avert() {
+  local tmp
+  start_log
+  refuse_if_mountpoint
+
+  if $do_freeze; then
+    require_no_immutable
+    seal_tree
+    __info 'sealed +i: %s' "$dir"
+    log "sealed $dir"
+  fi
+
+  tmp="$(mktemp)"
+  compute_sums_to "$tmp"
+
+  if $do_freeze; then
+    install_inner_sums "$tmp"
+  else
+    mv -f "$tmp" "$inner"
+  fi
+  __info 'wrote list: %s (%s files)' "$inner" "$count_hashed"
+
+  if [[ -e "$archive_path" ]]; then
+    rm -f "$archive_path"
+    __warn 'replaced archive: %s' "$archive_path"
+  fi
+  __info 'writing pax archive: %s' "$archive_path"
+  (
+    cd "$parent" || exit 1
+    if $do_gzip; then
+      tar --format=pax -czf "$archive_path" "$name"
+    else
+      tar --format=pax -cf "$archive_path" "$name"
+    fi
+  )
+  cp -f "$inner" "$sidecar"
+  __info 'wrote sidecar: %s' "$sidecar"
+  log "done avert hashed=$count_hashed archive=$archive_path bytes=$(stat -c %s "$archive_path") sidecar=$sidecar"
+}
+
+seal_hash() {
+  local tmp
+  start_log
+  require_no_immutable
+  seal_tree
+  __info 'sealed +i: %s' "$dir"
+  tmp="$(mktemp)"
+  compute_sums_to "$tmp"
+  install_inner_sums "$tmp"
+  __info 'wrote list: %s (%s files)' "$inner" "$count_hashed"
+  log "done immutalize-in-place hashed=$count_hashed inner=$inner"
+}
+
+seal_only() {
+  start_log
+  require_no_immutable
+  seal_tree
+  __info 'sealed +i: %s' "$dir"
+  log "done fast-immutalize-in-place $dir"
+}
+
+unfreeze() {
+  start_log
+  __warn 'unfreeze: clearing +i on %s (no prior flag check)' "$dir"
+  unseal_tree
+  __info 'cleared -i: %s' "$dir"
+  log "done unfreeze $dir"
+}
+
+audit_archive() {
+  local line
+  start_log
+  if [[ -z "$archive_path" || ! -f "$archive_path" ]]; then
+    __error 'archive not found: %s' "${archive_path:-none}"
+  fi
+  choose_hashfile
+  __info 'audit archive: %s' "$archive_path"
+  __info 'audit list: %s' "$trusted_sums"
+
+  python3 - "$archive_path" "$trusted_sums" "$name" <<'PY' | while IFS= read -r line; do
+import hashlib, sys, tarfile
+
+def unmask(s):
+    out = []
+    i = 0
+    n = len(s)
+    table = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\"}
+    while i < n:
+        if s[i] == "\\" and i + 1 < n and s[i + 1] in table:
+            out.append(table[s[i + 1]])
+            i += 2
+        else:
+            out.append(s[i])
+            i += 1
+    return "".join(out)
+
+archive_path, sums_path, prefix = sys.argv[1], sys.argv[2], sys.argv[3]
+wanted = []
+for raw in open(sums_path):
+    raw = raw.rstrip("\n")
+    if not raw:
+        continue
+    left, _, right = raw.partition("  ")
+    if left.startswith("\\"):
+        left = left[1:]
+    path = right.split("\t", 1)[0]
+    path = unmask(path)
+    rel = path[2:] if path.startswith("./") else path
+    wanted.append((left, rel, prefix + "/" + rel))
+ok = miss = bad = 0
+with tarfile.open(archive_path, "r:*") as tf:
+    names = set(tf.getnames())
+    n = 0
+    for h, rel, member in wanted:
+        n += 1
+        if n % 1000 == 0:
+            print("HEART", n)
+        info = tf.getmember(member) if member in names else None
+        if info is None or not info.isfile():
+            print("MISS", rel)
+            miss += 1
+            continue
+        src = tf.extractfile(info)
+        digest = hashlib.sha256(src.read()).hexdigest()
+        if digest == h:
+            print("OK", rel)
+            ok += 1
+        else:
+            print("BAD", rel)
+            bad += 1
+print("STAT", ok, miss, bad)
+PY
+    case "$line" in
+      HEART*) __info 'still reading files… (%s)' "${line#HEART }" ;;
+      OK*) __debug 'ok archive: %s' "${line#OK }" ;;
+      MISS*)
+        __warn 'missing archive member: %s' "${line#MISS }"
+        log "MISSING_ARCHIVE ${line#MISS }"
+        count_missing_archive=$((count_missing_archive + 1))
+        exit_rc=1
+        ;;
+      BAD*)
+        __warn 'hash fail archive member: %s' "${line#BAD }"
+        log "HASH_FAIL_ARCHIVE ${line#BAD }"
+        count_hash_fail=$((count_hash_fail + 1))
+        exit_rc=1
+        ;;
+      STAT*)
+        set -- $line
+        count_ok="$2"
+        ;;
+    esac
+  done
+
+  log "stat audit ok=$count_ok missing_archive=$count_missing_archive hash_fail=$count_hash_fail"
+  if [[ "$exit_rc" -eq 0 ]]; then
+    log "done audit-archive $archive_path"
+  else
+    __warn 'failed audit-archive: %s' "$archive_path"
+    log "FAIL audit-archive $archive_path"
+  fi
+  exit "$exit_rc"
+}
+
+verify() {
+  local line live got live_tmp listed_tmp fail_list masked_rel
+
+  start_log
+  choose_verify_inputs
+
+  if ! $restore_ok && $keep_rotten; then
+    __error '%s' "--keep-rotten is not valid without an archive (method 3 / hashfile-only)"
+  fi
+
+  fail_list="$(mktemp)"
+  listed_tmp="$(mktemp)"
+  count_seen=0
+  __info 'verifying live tree against %s; this can take a while' "$trusted_sums"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" ]] && continue
+    parse_sum_line "$line"
+    if [[ ${#parse_hash} -ne 64 || -z "$parse_rel" ]]; then
+      __warn 'bad checksum line: %s' "$line"
+      log "BAD_LINE $line"
+      exit_rc=1
+      continue
+    fi
+    printf '%s\0' "$parse_rel" >> "$listed_tmp"
+    live="$dir/$parse_rel"
+    heartbeat
+    __debug 'read: %s' "$parse_rel"
+
+    if [[ -d "$dir" && ! -e "$live" ]]; then
+      __warn 'missing: %s' "$parse_rel"
+      log "MISSING $parse_rel"
+      count_missing_live=$((count_missing_live + 1))
+      exit_rc=1
+      masked_rel="$(mask_path "$parse_rel")"
+      printf '%s\t%s\n' "$parse_hash" "$masked_rel" >> "$fail_list"
+      continue
+    fi
+
+    if [[ -d "$dir" && -f "$live" ]]; then
+      got="$(file_hash "$live")"
+      if [[ "$got" == "$parse_hash" ]]; then
+        count_ok=$((count_ok + 1))
+      else
+        __warn 'hash fail: %s' "$parse_rel"
+        log "HASH_FAIL $parse_rel"
+        count_hash_fail=$((count_hash_fail + 1))
+        exit_rc=1
+        note_mtime "$live" "$parse_mtime"
+        masked_rel="$(mask_path "$parse_rel")"
+        printf '%s\t%s\n' "$parse_hash" "$masked_rel" >> "$fail_list"
+      fi
+    elif [[ ! -d "$dir" ]]; then
+      __warn 'missing live tree; consider restore: %s' "$parse_rel"
+      log "MISSING_TREE $parse_rel"
+      count_missing_live=$((count_missing_live + 1))
+      exit_rc=1
+      masked_rel="$(mask_path "$parse_rel")"
+      printf '%s\t%s\n' "$parse_hash" "$masked_rel" >> "$fail_list"
+    fi
+  done < "$trusted_sums"
+
+  if [[ -d "$dir" ]]; then
+    live_tmp="$(mktemp)"
+    while IFS= read -r -d '' rel; do
+      printf '%s\0' "${rel#./}"
+    done < <(
+      cd "$dir" || exit 1
+      find . -type f ! -name SHA256SUMS ! -name '.SHA256SUMS.*' -print0
+    ) >| "$live_tmp"
+
+    listed_sorted="$(mktemp)"
+    live_sorted="$(mktemp)"
+    LC_ALL=C sort -z -o "$listed_sorted" "$listed_tmp"
+    LC_ALL=C sort -z -o "$live_sorted" "$live_tmp"
+    while IFS= read -r -d '' rel; do
+      [[ -z "$rel" ]] && continue
+      __warn 'new file: %s' "$rel"
+      log "NEW $rel"
+      count_new=$((count_new + 1))
+      exit_rc=1
+    done < <(LC_ALL=C comm -z -13 "$listed_sorted" "$live_sorted")
+    rm -f "$live_tmp" "$listed_sorted" "$live_sorted"
+  fi
+  rm -f "$listed_tmp"
+
+  if [[ -s "$fail_list" ]] && $restore_ok && ! $keep_rotten; then
+    restore_batch "$fail_list"
+  elif [[ ! -s "$fail_list" ]]; then
+    __info '%s' "no files need restoration"
+  fi
+  rm -f "$fail_list"
+
+  if $restore_ok && ! $keep_rotten && [[ "$count_restored" -eq 0 ]]; then
+    rmdir "$restore_root" 2>| /dev/null || true
+  fi
+
+  log "stat verify ok=$count_ok missing_live=$count_missing_live missing_archive=$count_missing_archive new=$count_new hash_fail=$count_hash_fail mtime_notes=$count_mtime_note restored=$count_restored restore_fail=$count_restore_fail hashfiles_differ=$hashfiles_differ restore_ok=$restore_ok"
+  __info 'log: %s' "$log_path"
+  if [[ "$exit_rc" -eq 0 ]]; then
+    log "done verify $dir"
+  else
+    __warn 'failed verify: %s' "$dir"
+    log "FAIL verify $dir"
+  fi
+  exit "$exit_rc"
+}
+
+case "$mode" in
+  avert) avert ;;
+  seal_hash) seal_hash ;;
+  seal_only) seal_only ;;
+  unfreeze) unfreeze ;;
+  audit_archive) audit_archive ;;
+  verify) verify ;;
+esac
