@@ -1,0 +1,13 @@
+#!/bin/bash
+
+function desynchronizer_setup() {
+	__info "setting up desynchronizer"
+
+	cd "$__desynchronizer_library_path/"
+
+	echo "$PWD"
+
+	__success "setting up desynchronizer"
+}
+
+register_handler "desynchronizer" "desynchronizer_setup"
