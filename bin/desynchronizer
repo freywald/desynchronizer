@@ -218,7 +218,7 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 		queue_parameters+=("$queue_configuration_option")
 	done
 
-	long_options="select-path::,ignore-path::,output-template::,output-description::,non-cli,simulate,verify,ignore-directories,debug,verbose,compact-format,create-archive::,create-mirror::,create-copy::,sync-remote::,direction::,source::,target::,source-pre-hook::,source-post-hook::,target-pre-hook::,target-post-hook::,target-backup-directory-path::,source-backup-directory-path-exclude::"
+	long_options="select-path::,ignore-path::,output-template::,output-description::,non-cli,simulate,verify,ignore-directories,backup-only,debug,verbose,compact-format,create-archive::,create-mirror::,create-copy::,sync-remote::,direction::,source::,target::,source-pre-hook::,source-post-hook::,target-pre-hook::,target-post-hook::,target-backup-directory-path::,source-backup-directory-path-exclude::"
 	parsed_options2=$(getopt --options="::" --longoptions="$long_options" --name "$0" -- "${queue_parameters[@]}") ||__expression_may_fail
 
 	# shellcheck disable=SC2128
@@ -265,6 +265,10 @@ for (( r = 0; r < queue_configuration_options_count; r++)); do
 					local_exit_failsafe
 				fi
 				((i++))||__expression_may_fail
+				;;
+			--backup-only)
+				forwarded_parameters+=("--existing")
+				forwarded_parameters+=("--ignore-existing")
 				;;
 			--compact-format)
 				is_compact_format=true
