@@ -1,0 +1,163 @@
+#!/bin/bash
+
+source -- "library/base" || exit 1
+
+program_name="$(basename -- "$0")"
+usage() {
+    echo "Usage: $program_name MERGED_DEST [DIRECTORY]" >&2
+    echo "  Sources: DIRECTORY/*   (DIRECTORY optional)" >&2
+}
+
+if (( $# < 1 )); then
+    usage
+    exit 1
+fi
+
+merged="$(realpath -- "$1")"
+directory="${2:-"."}"
+deleted_dir="$merged/DUPLICATE-ZERO"
+merged="$merged/MERGE"
+
+mkdir --parents -- "$merged" "$deleted_dir" || exit 1
+
+file_hash() {
+    if [[ -L "$1" ]]; then
+        readlink -n -- "$1" | openssl dgst -sha3-256 | cut -d' ' -f2
+    else
+        openssl dgst -sha3-256 -r -- "$1" | cut -d' ' -f1
+    fi
+}
+
+unique_name() {
+    local file="$1" directory="$2" base hash stem ext
+    base="${file##*/}"
+    hash="$(file_hash "$file")"
+
+    if [[ "$base" == *.* && "$base" != .* ]]; then
+        stem="${base%.*}"
+        ext="${base##*.}"
+        printf '%s/%s.%s.%s' "$directory" "$stem" "$hash" "$ext"
+    else
+        printf '%s/%s.%s' "$directory" "$base" "$hash"
+    fi
+}
+
+incremental_unique_name() {
+    local file="$1"
+    local wrapper="$file"
+    local i=0
+
+    while [[ -e "$wrapper" ]]; do
+        i=$((i + 1)) ||:
+        wrapper="${file}_$i"
+    done
+
+    printf '%s' "$wrapper"
+}
+
+park_zero() {
+    local src="$1"
+    local base="${src##*/}"
+    local dest="$deleted_dir/deleted-$base"
+    local i=0
+    while [[ -e "$dest" ]]; do
+        i=$((i + 1)) ||:
+        dest="$deleted_dir/deleted-${base}_$i"
+    done
+
+    __info " mv -- %s %s" "$src" "$dest"
+    mv -- "$src" "$dest" && __info "Parked: %s -> %s" "$src" "$dest"
+}
+
+for backup_directory in "$directory/"*; do
+    [[ -d "$backup_directory" ]] || continue
+
+    backup_directory="$(realpath -- "$backup_directory")"
+    [[ "$backup_directory" == "$merged" ]] && continue
+
+    rsync -a --ignore-existing --remove-source-files -- "$backup_directory/" "$merged/"
+
+    mapfile -d '' leftovers < <(find "$backup_directory" -type f -o -type l -printf '%P\0')
+
+    for relative in "${leftovers[@]}"; do
+        [[ -z "$relative" ]] && continue
+
+        item="$backup_directory/$relative"
+        target="$merged/$relative"
+
+        if [[ ! -e "$target" && ! -L "$target" ]]; then
+            __info "Unexpected leftover (not in merge): %s" "$item"
+            continue
+        fi
+
+        src_size="$(stat --format "%s" -- "$item")"
+        src_mtime="$(stat --format "%Y" -- "$item")"
+        dst_mtime="$(stat --format "%Y" -- "$target")"
+
+        if [[ -L "$item" ]]; then
+            unique="$(unique_name "$item" "$(dirname -- "$target")"; printf x)"
+            unique="${unique%x}"
+            if [[ -e "$unique" || -L "$unique" ]]; then
+                unique="$(incremental_unique_name "$unique"; printf x)"
+                unique="${unique%x}"
+            fi
+            if mv -- "$item" "$unique"; then
+                echo "Renamed symlink: $item -> $unique"
+            else
+                echo "Failed: $item -> $unique" >&2
+            fi
+
+            continue
+        fi
+        
+        if (( src_size > 0 )); then
+            if cmp -s -- "$item" "$target"; then
+                park_zero "$item"
+
+                continue
+            fi
+
+            unique="$(unique_name "$item" "$(dirname -- "$target")")"
+
+            if [[ -e "$unique" || -L "$unique" ]]; then
+                echo "Unique name exists: $item -> $unique" >&2
+                if cmp -s -- "$item" "$unique"; then
+                    park_zero "$item"
+                else
+                    echo "Same derived name, different bytes: $item vs $unique" >&2
+
+                    unique="$(incremental_unique_name "$unique")"
+                    if mv -- "$item" "$unique"; then
+                        echo "Renamed duplicate: $item -> $unique"
+                    else
+                        echo "Failed: $item -> $unique" >&2
+                    fi
+                fi
+			else
+                if mv -- "$item" "$unique"; then
+                    echo "Renamed duplicate: $item -> $unique"
+                else
+                    echo "Failed: $item -> $unique" >&2
+                fi
+            fi
+            continue
+        fi
+
+        # Incoming empty file, and merge already has this path
+        if (( src_mtime < dst_mtime )) && [[ -f "$target" ]] && (( $(stat --format "%s" -- "$target") == 0 )); then
+            park_zero "$target"
+
+            __info "mv -- %s %s" "$item" "$target"
+            if mv -- "$item" "$target"; then
+                echo "Kept older empty: $target"
+            else
+                echo "Failed: $item -> $target" >&2
+            fi
+        else
+            park_zero "$item"
+        fi
+    done
+
+    find "$backup_directory" -mindepth 1 -type d -empty -delete
+done
+

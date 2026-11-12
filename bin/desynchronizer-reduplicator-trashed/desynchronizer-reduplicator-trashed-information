@@ -1,0 +1,673 @@
+#!/bin/bash
+
+source -- "library/base" || exit 1
+
+program_name="$(basename -- "$0")"
+usage() {
+	cat <<EOF
+Usage: $program_name [options] [path...]
+
+Check, list or browse items in trash directories on the current filesystem
+(and home trash if on the same filesystem).
+
+Options:
+	--guard     Report items whose original path is NOT under the given
+			  path(s). Exits 0 only if none such "other" items exist
+			  (safe to empty the trash from this script's point of view).
+			  Mutually exclusive with --list and --browse.
+
+	--list      List trashed items with size, type, trash filename and
+			  original path.
+			  If paths are given, only items under those paths;
+			  otherwise all items in the scanned trashes.
+			  Mutually exclusive with --guard and --browse.
+
+	--browse[=DIRECTORY]
+			  Recreate the original directory tree as symlinks inside a
+			  view directory (sibling of each trash). Only directories and
+			  symlinks are created, so the view can be safely removed.
+			  DIRECTORY may also be given as a following argument.
+			  Mutually exclusive with --guard and --list.
+
+	--filter-by-name=REGEXP
+			  (browse only) keep items whose basename matches REGEXP.
+
+	--filter-by-path=REGEXP
+			  (browse only) keep items whose full original path matches REGEXP.
+
+	--depth N   Limit displayed / linked paths to at most N components
+			  (relative to the filesystem root for directories).
+
+	--files     Select only regular files.
+	--directories
+			  Select only directories.
+	--all       Select both (default).
+
+	--help      Show this help.
+
+If neither --guard, --list nor --browse is given, this help is shown.
+
+Trash directories are discovered at the filesystem root
+(.Trash-\$UID, .Trash/\$UID, .Trash-*) and, when applicable, the
+XDG home trash. Additionally, if the current working directory is
+inside a trash folder (detected by the presence of info/ and files/
+subdirectories, walking upward), that trash is included regardless
+of its name or location.
+
+Examples:
+
+  Check whether the trash contains anything that did not originally live under /home/user/project.
+  The command exits 0 only when every item belongs to that tree, otherwise it lists the outsiders and exits 2.
+  desynchronizer-reduplicator-trashed-information --guard -- /home/user/project
+
+  List every item currently stored in the discovered trash directories.
+  Columns show size, type, trash name and the original path.
+  desynchronizer-reduplicator-trashed-information --list
+
+  List only the items whose original location was under /data/incoming.
+  All other trash entries are ignored.
+  desynchronizer-reduplicator-trashed-information --list -- /data/incoming
+
+  Show the distinct directory prefixes that appear in the trash, limited to two levels below the filesystem root.
+  Deeper paths are omitted and each directory is printed only once.
+  desynchronizer-reduplicator-trashed-information --list --depth 2 --directories
+
+  Show only the leaf file names of trashed items.
+  Directory components are not displayed.
+  desynchronizer-reduplicator-trashed-information --list --files
+
+  Recreate the full original tree of the trash as a symlink forest.
+  A timestamped view directory is created next to each trash and can later be removed safely.
+  desynchronizer-reduplicator-trashed-information --browse
+
+  Build a symlink view that contains only items from /media/user/photos.
+  The view directory is named my-view and placed beside the trash.
+  desynchronizer-reduplicator-trashed-information --browse=my-view -- /media/user/photos
+
+  Create a view that keeps only files whose basename matches the given regular expression.
+  desynchronizer-reduplicator-trashed-information --browse --filter-by-name='Screenshot|Bildschirmfoto'
+
+  Create a view that keeps only items whose full original path contains the fragment “u/foo”.
+  Both the directory and the file name are considered.
+  desynchronizer-reduplicator-trashed-information --browse --filter-by-path='u/foo'
+
+  Build a view limited to directories that are at most three levels deep under /media/user/archive.
+  Files and deeper paths are excluded.
+  desynchronizer-reduplicator-trashed-information --browse --depth 3 --directories -- /media/user/archive
+
+EOF
+}
+
+# Option parsing
+perform_guard=false
+perform_list=false
+perform_browse=false
+browse_directory_name=
+filter_by_name=
+filter_by_path=
+select_files=false
+select_directories=false
+depth=
+path_arguments=()
+while (( $# )); do
+	case "$1" in
+		--guard) perform_guard=true; shift ||__expression_may_fail ;;
+		--list) perform_list=true;   shift ||__expression_may_fail ;;
+		--browse=*)
+			perform_browse=true
+			browse_directory_name="${1#--browse=}"
+			shift ||__expression_may_fail
+			;;
+		--browse)
+			perform_browse=true
+			if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+				browse_directory_name="$2"
+				shift 2 ||__expression_may_fail
+			else
+				shift ||__expression_may_fail
+			fi
+			;;
+		--filter-by-name=*)
+			filter_by_name="${1#--filter-by-name=}"
+			shift ||__expression_may_fail
+			;;
+		--filter-by-path=*)
+			filter_by_path="${1#--filter-by-path=}"
+			shift ||__expression_may_fail
+			;;
+		--depth)
+			depth="${2:-}"
+			shift 2 ||__expression_may_fail
+			;;
+		--files) select_files=true;       shift ||__expression_may_fail ;;
+		--directories) select_directories=true; shift ||__expression_may_fail ;;
+		--all) select_files=true; select_directories=true; shift ||__expression_may_fail ;;
+		--help) usage; exit 0 ;;
+		--) shift ||__expression_may_fail; break ;;
+		--*) __info "Unknown option: %s" "$1"; usage; exit 1 ;;
+		-*) __info "Unknown option: %s" "$1"; usage; exit 1 ;;
+		*) path_arguments+=("$@"); break ;;
+	esac
+done
+
+mode_count=0
+$perform_guard && (( mode_count++ )) ||__expression_may_fail
+$perform_list && (( mode_count++ )) ||__expression_may_fail
+$perform_browse && (( mode_count++ )) ||__expression_may_fail
+
+if (( mode_count > 1 )); then
+	__error "Error: --guard, --list and --browse are mutually exclusive"
+	exit 1
+fi
+if (( mode_count == 0 )); then
+	usage
+	exit 1
+fi
+
+if $perform_guard && (( ${#path_arguments[@]} == 0 )); then
+	__error "Error: --guard requires one or more paths"
+	exit 1
+fi
+
+# Default to all types when no selector given
+if ! $select_files && ! $select_directories; then
+	select_files=true
+	select_directories=true
+fi
+
+url_decode() {
+	local LC_ALL="C"
+	local input_string="$1"
+	local decoded=""
+	local character_index=0
+	local length=${#input_string}
+	local hexadecimal
+
+	while (( character_index < length )); do
+		local character="${input_string:character_index:1}"
+		if [[ "$character" == "%" ]] && (( character_index + 2 < length )); then
+			hexadecimal="${input_string:character_index+1:2}"
+			if [[ "$hexadecimal" =~ ^[0-9A-Fa-f]{2}$ ]]; then
+				printf -v character '%b' "\\x$hexadecimal"
+				decoded+="$character"
+				(( character_index += 3 ))||__expression_may_fail
+				continue
+			fi
+		fi
+		decoded+="$character"
+		(( character_index++ ))||__expression_may_fail
+	done
+	printf '%s' "$decoded"
+}
+
+url_encode() {
+	local LC_ALL="C"
+	local input_string="$1"
+	local character encoded_character output_string=""
+
+	local character_index
+	for (( character_index = 0; character_index < ${#input_string}; character_index++ )); do
+		character="${input_string:character_index:1}"
+		case "$character" in
+			[A-Za-z0-9._~/-]) output_string+="$character" ;;
+			*) printf -v encoded_character '%%%02X' "'$character"
+			   output_string+="$encoded_character" ;;
+		esac
+	done
+
+	printf '%s' "$output_string"
+}
+
+add_path_prefix() {
+	local path_prefix="${1%"/"}"
+	local existing_prefix
+
+	[[ -z "$path_prefix" ]] && return 0
+	for existing_prefix in "${path_prefixes[@]}"; do
+		[[ "$existing_prefix" == "$path_prefix" ]] && return 0
+	done
+	path_prefixes+=("$path_prefix")
+}
+
+add_trash_directory() {
+	local trash_directory="$1"
+	local existing_trash_directory
+
+	[[ ! -d "$trash_directory/info" || ! -d "$trash_directory/files" ]] && return 0
+
+	for existing_trash_directory in "${trash_directories[@]}"; do
+		[[ "$existing_trash_directory" == "$trash_directory" ]] && return 0
+	done
+
+	trash_directories+=("$trash_directory")
+}
+
+truncate_to_depth() {
+	local path="$1"
+	local maximum_depth="$2"
+
+	local cleaned="${path//\/\//\/}"
+	cleaned="${cleaned#"/"}"
+	cleaned="${cleaned%"/"}"
+
+	local -a path_components
+	IFS='/' read -r -a path_components <<< "$cleaned"
+
+	local result="./"
+	local count=0
+
+	local path_component
+	for path_component in "${path_components[@]}"; do
+		[[ -z "$path_component" ]] && continue
+		result+="$path_component/"
+		(( count++ )) ||__expression_may_fail
+		(( count >= maximum_depth )) && break
+	done
+
+	printf '%s' "${result%"/"}"
+}
+
+# Detect whether current working directory (or an ancestor) is a trash root by contents
+detect_current_directory_trash() {
+	local current_directory
+	current_directory="$(pwd)" || return 1
+	local filesystem_root_of_current
+	filesystem_root_of_current="$(stat --format='%m' -- "$current_directory")" || return 1
+	while :; do
+		if [[ -d "$current_directory/info" && -d "$current_directory/files" ]]; then
+			add_trash_directory "$current_directory"
+			return 0
+		fi
+
+		[[ "$current_directory" == "$filesystem_root_of_current" || "$current_directory" == "/" ]] && break
+
+		current_directory="$(dirname -- "$current_directory")"
+	done
+
+	return 1
+}
+
+user_identifier="$(id --user)"
+home_filesystem_root="$(stat --format='%m' -- "$HOME")"
+filesystem_root="$(stat --format='%m' -- "$(pwd)")"
+home_trash_directory="$HOME/.local/share/Trash"
+home_share_directory="$HOME/.local/share"
+
+trash_directories=()
+
+add_trash_directory "$filesystem_root/.Trash-$user_identifier"
+add_trash_directory "$filesystem_root/.Trash/$user_identifier"
+
+for candidate_trash_directory in "$filesystem_root"/".Trash-"*; do
+	add_trash_directory "$candidate_trash_directory"
+done
+
+if [[ "$filesystem_root" == "$home_filesystem_root" ]]; then
+	add_trash_directory "$home_trash_directory"
+fi
+
+# Include trash detected from current working directory (any name/location)
+detect_current_directory_trash ||__expression_may_fail
+
+if (( ${#trash_directories[@]} == 0 )); then
+	__error "No trash directory under %s (.Trash-%s, .Trash/*, home trash, or detected from current directory)" "$filesystem_root" "$user_identifier"
+	exit 1
+fi
+
+base_forms=()
+function add_to_base() {
+	local form="$1"
+	[[ -z "$form" ]] && return 0
+	local existing
+	for existing in "${base_forms[@]}"; do
+		[[ "$existing" == "$form" ]] && return 0
+	done
+	base_forms+=("$form")
+}
+
+# Build path prefixes only when path arguments were supplied
+path_prefixes=()
+if (( ${#path_arguments[@]} > 0 )); then
+	for raw_path_argument in "${path_arguments[@]}"; do
+		raw_path_prefix="${raw_path_argument%/}"
+		base_forms=()
+
+		# Always consider three interpretations:
+		#   1. exactly as given
+		#   2. URL-decoded (covers already-encoded arguments)
+		#   3. URL-encoded (covers literal arguments that must match encoded Path= values)
+		decoded_path_prefix="$(url_decode "$raw_path_prefix")"
+		encoded_path_prefix="$(url_encode "$raw_path_prefix")"
+
+		# Collect the distinct base forms
+		add_to_base "$raw_path_prefix"
+		add_to_base "$decoded_path_prefix"
+		add_to_base "$encoded_path_prefix"
+
+		for base in "${base_forms[@]}"; do
+			# realpath only on forms that do not contain '%'
+			if [[ "$base" != *%* ]]; then
+				resolved="$(realpath --canonicalize-missing -- "$base")"
+				add_path_prefix "$base"
+				add_path_prefix "$resolved"
+				add_path_prefix "${base#"$filesystem_root"/}"
+				add_path_prefix "${resolved#"$filesystem_root"/}"
+				add_path_prefix "${base#"$home_share_directory"/}"
+				add_path_prefix "${resolved#"$home_share_directory"/}"
+			else
+				add_path_prefix "$base"
+				add_path_prefix "${base#"$filesystem_root"/}"
+				add_path_prefix "${base#"$home_share_directory"/}"
+			fi
+		done
+	done
+fi
+
+path_prefix_text="$(printf '%s\n' "${path_prefixes[@]}")"
+
+__info "Filesystem root: %s" "$filesystem_root"
+__info "Trash directories: %s" "${trash_directories[*]}"
+
+# Awk that emits matching items (basename + path) — used by list and browse
+awk_match='
+BEGIN {
+	prefix_count = split(path_prefix_text, path_prefix_array, "\n")
+}
+{
+	path_key = ":Path="
+	key_position = index($0, path_key)
+	if (!key_position) next
+	trashinfo_file = substr($0, 1, key_position - 1)
+	original_path = substr($0, key_position + length(path_key))
+	# If the stored path is relative, anchor it at the filesystem root
+	if (original_path !~ /^\//) {
+		original_path = filesystem_root "/" original_path
+	}
+	if (length(original_path) && substr(original_path, length(original_path), 1) == "/") {
+		original_path = substr(original_path, 1, length(original_path) - 1)
+	}
+	matches_prefix = 0
+	if (prefix_count == 0) {
+		matches_prefix = 1
+	} else {
+		for (prefix_index = 1; prefix_index <= prefix_count; prefix_index++) {
+			current_prefix = path_prefix_array[prefix_index]
+			if (current_prefix == "") continue
+			if (original_path == current_prefix || index(original_path, current_prefix "/") == 1) {
+				matches_prefix = 1
+				break
+			}
+		}
+	}
+	if (!matches_prefix) next
+	path_component_count = split(trashinfo_file, path_components, "/")
+	trash_basename = path_components[path_component_count]
+	sub(/\.trashinfo$/, "", trash_basename)
+	printf "%s\0%s\0", trash_basename, original_path
+}'
+
+# Guard-optimized awk: only emits non-matching items
+awk_guard='
+BEGIN {
+	prefix_count = split(path_prefix_text, path_prefix_array, "\n")
+}
+{
+	path_key = ":Path="
+	key_position = index($0, path_key)
+	if (!key_position) next
+	trashinfo_file = substr($0, 1, key_position - 1)
+	original_path = substr($0, key_position + length(path_key))
+	# If the stored path is relative, anchor it at the filesystem root
+	if (original_path !~ /^\//) {
+		original_path = filesystem_root "/" original_path
+	}
+	if (length(original_path) && substr(original_path, length(original_path), 1) == "/") {
+		original_path = substr(original_path, 1, length(original_path) - 1)
+	}
+	matches_prefix = 0
+	if (prefix_count == 0) {
+		matches_prefix = 1
+	} else {
+		for (prefix_index = 1; prefix_index <= prefix_count; prefix_index++) {
+			current_prefix = path_prefix_array[prefix_index]
+			if (current_prefix == "") continue
+			if (original_path == current_prefix || index(original_path, current_prefix "/") == 1) {
+				matches_prefix = 1
+				break
+			}
+		}
+	}
+	if (matches_prefix) next
+	path_component_count = split(trashinfo_file, path_components, "/")
+	trash_basename = path_components[path_component_count]
+	sub(/\.trashinfo$/, "", trash_basename)
+	printf "%s\0%s\0", trash_basename, original_path
+}'
+
+total_item_count=0
+other_item_count=0
+declare -A seen_directories=()
+
+# Print list header once if list mode is active
+if $perform_list; then
+	printf '%-70s %12s %-20s %s\n' "Trash Name" "Size" "Type" "Original Path"
+fi
+
+# Browse helper: create view directory for one trash and link matching items
+browse_one_trash() {
+	local trash_directory="$1"
+	local trash_parent_directory
+	trash_parent_directory="$(dirname -- "$trash_directory")"
+	local current_date
+	current_date="$(date +%Y%m%d%H%M%S)"
+	local view_directory
+	if [[ -n "$browse_directory_name" ]]; then
+		if [[ "$browse_directory_name" == /* ]]; then
+			view_directory="$browse_directory_name"
+		else
+			view_directory="$trash_parent_directory/$browse_directory_name"
+		fi
+	else
+		view_directory="$trash_parent_directory/Trash-view-$current_date"
+	fi
+
+	if [[ -d "$view_directory" ]] && [[ -n "$(ls -1qA -- "$view_directory" 2>"/dev/null")" ]]; then
+		__error "View directory already exists and is not empty: %s" "$view_directory"
+		return 1
+	fi
+	mkdir --parents -- "$view_directory" || return 1
+
+	local linked_count=0
+	local saved_working_directory
+	saved_working_directory="$(pwd)"
+	cd -- "$view_directory" || return 1
+
+	while IFS= read -r -d $'\0' trash_basename && IFS= read -r -d $'\0' original_path; do
+		local cleaned="${original_path//\/\//\/}"
+		cleaned="${cleaned%"/"}"
+		local decoded
+		decoded="$(url_decode "$cleaned")"
+		local leaf_name="${decoded##*/}"
+
+		# optional regex filters
+		if [[ -n "$filter_by_name" ]] && ! [[ "$leaf_name" =~ $filter_by_name ]]; then
+			continue
+		fi
+		if [[ -n "$filter_by_path" ]] && ! [[ "$decoded" =~ $filter_by_path ]]; then
+			continue
+		fi
+
+		# depth limit (relative to filesystem root)
+		if [[ -n "$depth" && "$depth" =~ ^[0-9]+$ ]]; then
+			local relative="${decoded#"$filesystem_root"/}"
+			[[ "$relative" == "$decoded" ]] && relative="${decoded#"/"}"
+			local -a path_components
+			IFS='/' read -r -a path_components <<< "$relative"
+			local component_count=0
+			local path_component
+			for path_component in "${path_components[@]}"; do
+				[[ -n "$path_component" ]] && (( component_count++ )) ||__expression_may_fail
+			done
+			(( component_count > depth )) && continue
+		fi
+
+		# type selection
+		local files_directory_entry="$trash_directory/files/$trash_basename"
+		if ! $select_files || ! $select_directories; then
+			if [[ -d "$files_directory_entry" ]]; then
+				$select_directories || continue
+			else
+				$select_files || continue
+			fi
+		fi
+
+		local parent_directory="${decoded%/*}"
+		[[ "$parent_directory" == "$decoded" ]] && parent_directory="."
+		mkdir --parents -- "$parent_directory" || continue
+		ln --backup=numbered --symbolic --logical --no-dereference -- "$files_directory_entry" "$decoded" || continue
+		(( linked_count++ )) ||__expression_may_fail
+	done < <( LC_ALL="C" grep --text --dereference-recursive --include='*.trashinfo' -- '^Path=' "$trash_directory/info" | awk -v path_prefix_text="$path_prefix_text" -v filesystem_root="$filesystem_root" -- "$awk_match" )
+
+	cd -- "$saved_working_directory" || return 1
+
+	# metadata
+	{
+		echo "Trash directory: $trash_directory"
+		echo "View directory: $view_directory"
+		echo "Filter by name: ${filter_by_name:-<none>}"
+		echo "Filter by path: ${filter_by_path:-<none>}"
+		echo "Depth: ${depth:-<none>}"
+		echo "Invocation: $0 ${*:-}"
+	} > "$view_directory/command.markdown"
+
+	if (( linked_count == 0 )); then
+		rmdir -- "$view_directory" 2>"/dev/null" || true
+		__info "No items linked for %s (view removed)" "$trash_directory"
+		return 77
+	fi
+	__info "Linked %s items into %s" "$linked_count" "$view_directory"
+	return 0
+}
+
+browse_exit=0
+if $perform_guard; then
+	for trash_directory in "${trash_directories[@]}"; do
+		while IFS= read -r -d $'\0' trash_basename && IFS= read -r -d $'\0' original_path; do
+			(( total_item_count++ )) ||__expression_may_fail
+			(( other_item_count++ )) ||__expression_may_fail
+
+			if ! $select_files || ! $select_directories; then
+				files_directory_entry="$trash_directory/files/$trash_basename"
+				if [[ -d "$files_directory_entry" ]]; then
+					! $select_directories && continue
+				else
+					! $select_files && continue
+				fi
+			fi
+
+			display_path="$original_path"
+			if [[ -n "$depth" ]]; then
+				display_path="$(truncate_to_depth "$original_path" "$depth")"
+			fi
+			display_path="$(url_decode "$display_path")"
+			printf '%s\t%s\t%s\n' "$trash_directory" "$trash_basename" "$display_path"
+
+		done < <( LC_ALL="C" grep --text --dereference-recursive --include='*.trashinfo' -- '^Path=' "$trash_directory/info" | awk -v path_prefix_text="$path_prefix_text" -v filesystem_root="$filesystem_root" -- "$awk_guard" )
+	done
+elif $perform_browse; then
+	for trash_directory in "${trash_directories[@]}"; do
+		browse_one_trash "$trash_directory" || browse_exit=$?
+	done
+elif $perform_list; then
+	for trash_directory in "${trash_directories[@]}"; do
+		while IFS= read -r -d $'\0' trash_basename && IFS= read -r -d $'\0' original_path; do
+			(( total_item_count++ )) ||__expression_may_fail
+
+			cleaned="${original_path//\/\//\/}"
+			cleaned="${cleaned%"/"}"
+			directory_part="${cleaned%"/"*}"
+			file_part="${cleaned##*"/"}"
+			[[ "$directory_part" == "$cleaned" ]] && directory_part=""
+
+			if $select_directories && ! $select_files; then
+				[[ -z "$directory_part" ]] && continue
+				relative_directory="${directory_part#"$filesystem_root"/}"
+				[[ "$relative_directory" == "$directory_part" ]] && relative_directory="${directory_part#"/"}"
+				relative_directory="${relative_directory//\/\//\/}"
+				relative_directory="${relative_directory#"/"}"
+				relative_directory="${relative_directory%"/"}"
+				[[ -z "$relative_directory" ]] && continue
+
+				IFS='/' read -r -a path_components <<< "$relative_directory"
+				component_count=0
+				for path_component in "${path_components[@]}"; do
+					[[ -n "$path_component" ]] && (( component_count++ )) ||__expression_may_fail
+				done
+				if [[ -n "$depth" && "$depth" =~ ^[0-9]+$ ]] && (( component_count > depth )); then
+					continue
+				fi
+
+				display_path="$(url_decode "./$relative_directory")"
+				if [[ -z "${seen_directories["$display_path"]:-}" ]]; then
+					seen_directories["$display_path"]=1
+					printf '%s\t%s\t%s\t%s\n' "-" "directory" "" "$display_path"
+				fi
+
+				continue
+			fi
+
+			if $select_files && ! $select_directories; then
+				[[ -z "$file_part" ]] && continue
+				file_part="$(url_decode "$file_part")"
+				printf '%s\t%s\t%s\t%s\n' "-" "file" "$trash_basename" "$file_part"
+
+				continue
+			fi
+
+			files_directory_entry="$trash_directory/files/$trash_basename"
+			if [[ -e "$files_directory_entry" || -L "$files_directory_entry" ]]; then
+				raw_size="$(stat --format="%s" -- "$files_directory_entry" 2>"/dev/null")" || echo ''
+				if [[ -n "$raw_size" ]]; then
+					file_size="$(numfmt --to="iec" --suffix="B" -- "$raw_size" 2>"/dev/null")" || echo "$raw_size"
+				else
+					file_size='?'
+				fi
+				file_type="$(stat --format="%F" -- "$files_directory_entry" 2>"/dev/null")" || echo 'unknown'
+			else
+				file_size='?'
+				file_type='missing'
+			fi
+
+			display_path="$cleaned"
+			if [[ -n "$depth" && "$depth" =~ ^[0-9]+$ ]]; then
+				display_path="$(truncate_to_depth "$cleaned" "$depth")"
+			fi
+			display_path="$(url_decode "$display_path")"
+			printf '%s\t%s\t%s\t%s\n' "$file_size" "$file_type" "$trash_basename" "$display_path"
+		done < <( LC_ALL="C" grep --text --dereference-recursive --include='*.trashinfo' -- '^Path=' "$trash_directory/info" | awk -v path_prefix_text="$path_prefix_text" -v filesystem_root="$filesystem_root" -- "$awk_match" )
+	done
+else
+	:
+fi
+
+if $perform_guard; then
+	expected_count="$(( total_item_count - other_item_count ))" ||__expression_may_fail
+	__info
+	__info "Scanned: %s"  "$total_item_count"
+	__info "Expected: %s (under given path(s))" "$expected_count"
+	__info "Other: %s (review these before emptying)" "$other_item_count"
+
+	if (( other_item_count == 0 )); then
+		__info "OK to empty this volume trash from the script's point of view."
+		exit 0
+	else
+		__info "Do not empty yet: other original locations were found."
+		exit 2
+	fi
+fi
+
+if $perform_browse; then
+	exit "$browse_exit"
+fi
+
+exit 0

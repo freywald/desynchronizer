@@ -1,0 +1,3 @@
+#!/bin/bash
+
+__prepend_new_path_to_path "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/")/desynchronizer-reduplicator-trashed"

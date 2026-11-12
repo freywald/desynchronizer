@@ -1,0 +1,39 @@
+#!/bin/bash
+
+source -- "library/base" || exit 1
+
+move_enabled=""
+
+while (( $# )); do
+	case "$1" in
+		--move)
+			move_enabled="--move"
+			shift || __expression_may_fail
+			;;
+		--help)
+			# @todo add a usage function
+			__info "@todo usage"
+			exit 0
+			;;
+		--)
+			shift || __expression_may_fail
+			break
+			;;
+		--*)
+			__error "Unknown option: %s" "$1"
+			exit 1
+			;;
+		-*)
+			__error "Unknown option: %s" "$1"
+			exit 1
+			;;
+		*)
+			break
+			;;
+	esac
+done
+
+desynchronizer-reduplicator-trashed-move '/../.git/' --test is-git-archive ${move_enabled:+"$move_enabled"}
+desynchronizer-reduplicator-trashed-move '/~(x?html?)?/*_files/' '/~(x?html?)?/*-Dateien/' '/~(x?html?)?/*-dateien/' '/~(x?html?)?/*_dateien/' '*.html' '*.htm' '*.xhtml' '*.xhtm' ${move_enabled:+"$move_enabled"}
+desynchronizer-reduplicator-trashed-move '/b0/*' ${move_enabled:+"$move_enabled"}
+

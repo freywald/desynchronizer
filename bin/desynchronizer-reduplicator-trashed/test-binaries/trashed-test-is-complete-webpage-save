@@ -1,0 +1,75 @@
+#!/bin/bash
+
+source -- "library/base" || exit 1
+
+if (( $# < 1 )); then
+    echo "Usage: $0 PATH" >&2
+    exit 1
+fi
+
+path="$1"
+! [[ -e "$path" || -L "$path" ]] && exit 1
+
+base="${path##*/}"
+parent="$(dirname -- "$path"; printf x)"
+parent="${parent%$'\n'x}"
+
+html_extensions=( "html" "htm" "xhtml" )
+dir_suffixes=( "_files" "-Dateien" "-dateien" "_dateien" )
+
+stem_from_sidecar_dir() {
+    local name="$1"
+    local suf
+    for suf in "${dir_suffixes[@]}"; do
+        if [[ "$name" == *"$suf" && "$name" != "$suf" ]]; then
+            printf '%s' "${name%"$suf"}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+has_html() {
+    local stem="$1"
+    local ext
+
+    for ext in "${html_extensions[@]}"; do
+        [[ -f "$parent/$stem.$ext" || -L "$parent/$stem.$ext" ]] && return 0
+    done
+
+    return 1
+}
+
+has_sidecar_dir() {
+    local stem="$1"
+    local suf
+
+    for suf in "${dir_suffixes[@]}"; do
+        [[ -d "$parent/$stem$suf" ]] && return 0
+    done
+
+    return 1
+}
+
+if [[ -d "$path" ]]; then
+    stem="$(stem_from_sidecar_dir "$base")" || exit 1
+    has_html "$stem" || exit 1
+
+    exit 0
+fi
+
+if [[ -f "$path" || -L "$path" ]]; then
+    ext="${base##*.}"
+    ext="${ext,,}"
+
+    [[ "$ext" != "html" && "$ext" != "htm" && "$ext" != "xhtml" ]] && exit 1
+    [[ "$base" != *.* ]] && exit 1
+
+    stem="${base%.*}"
+    has_sidecar_dir "$stem" || exit 1
+
+    exit 0
+fi
+
+exit 1

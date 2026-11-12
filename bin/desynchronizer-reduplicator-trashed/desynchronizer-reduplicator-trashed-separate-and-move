@@ -1,0 +1,687 @@
+#!/bin/bash
+
+source -- "library/base" || exit 1
+
+program_name="$(basename -- "$0")"
+usage() {
+	echo "Usage: $program_name [OPTION]… [PATTERN …]" >&2
+	echo >&2
+	echo "Move matching files/dirs to DEST/backup-<date>/, keeping the path under ." >&2
+	echo "Default is simulate (print mv). Pass --move to actually move." >&2
+	echo "  --name PREFIX         move directory name (default: backup)" >&2
+	echo >&2
+	echo "Selection" >&2
+	echo "  --directories         directories only" >&2
+	echo "  --files               files only" >&2
+	echo "  --all                 files and directories" >&2
+	echo "                        (default when PATTERN is given and mode is omitted)" >&2
+	echo "  --only-empty          only empty files and/or empty directories" >&2
+	echo "  Need a mode and/or at least one PATTERN." >&2
+	echo >&2
+	echo "Destination" >&2
+	echo "  --destination DIR     base directory (default: ../trashed-move)" >&2
+	echo "  --move                perform the moves" >&2
+	echo "  --list                print matches only; never move (overrides --move)" >&2
+	echo "  --no-list             print matches never; never move (overrides --move)" >&2
+	echo "  --filter COMMAND      forwards matches to command only, does nothing else" >&2
+	echo >&2
+	echo "External filter (optional)" >&2
+	echo "  --test COMMAND        COMMAND gets one path; exit 0 = move, >0 = skip" >&2
+	echo "  --fail-test COMMAND   invert: exit 0 = skip, >0 = move" >&2
+	echo "                        COMMAND is looked up as trashed-test-COMMAND, then COMMAND," >&2
+	echo "                        or as a path if it contains /" >&2
+	echo >&2
+	echo "PATTERN is a find -name glob. Quote it." >&2
+	echo "  name                  file whose basename matches name" >&2
+	echo "  name/                 directory whose basename matches name" >&2
+	echo "  /b0/GLOB              files of size 0 matching GLOB" >&2
+	echo "  /bN/GLOB              files of size exactly N bytes" >&2
+	echo "  /b>N/GLOB             files larger than N bytes" >&2
+	echo "  /b>=N/GLOB            files of size N bytes or larger" >&2
+	echo "  /b<N/GLOB             files smaller than N bytes" >&2
+	echo "  /b<=N/GLOB            files of size N bytes or smaller" >&2
+	echo "  /../GLOB/             directory GLOB; move its parent (e.g. /../*.git/)" >&2
+	echo "  /~.EXT/GLOB/          directory GLOB; also move siblings STEM.EXT" >&2
+	echo "                        EXT is an ERE: \.html \.html?  .*" >&2
+	echo "  /!/GLOB               do not move files that match" >&2
+	echo "  /!/GLOB/              do not move directories or anything under them that matches" >&2
+	echo >&2
+	echo "Examples" >&2
+	echo >&2
+	echo -e "\tMove all txt-files, but ignore directories that end with '.allow-duplicates'\n\t$ $(basename -- "$0") '*.txt' '/!/*.allow-duplicates/'\n" >&2
+	echo -e "\tMove all .git repositories\n\t$ $(basename -- "$0") '/../*.git/' --test is-git-archive\n" >&2
+	echo -e "\tMove all saved XHTML pages and sidecars\n\t$ $(basename -- "$0") '/~\.x?html?/*_files/' '/~\.x?html?/*-Dateien/' '/~\.x?html?/*-dateien/' '/~\.x?html?/*_dateien/' --test is-complete-webpage-save\n" >&2
+	echo -e "\tMove all saved XHTML pages and sidecars (don't test for completeness, take whatever there is)\n\t$ $(basename -- "$0") '/~\.x?html?/*_files/' '/~\.x?html?/*-Dateien/' '/~\.x?html?/*-dateien/' '/~\.x?html?/*_dateien/'\n" >&2
+	echo -e "\tMove all XHTML pages (whatever matches)\n\t$ $(basename -- "$0") '/~(x?html?)?/*_files/' '/~(x?html?)?/*-Dateien/' '/~(x?html?)?/*-dateien/' '/~(x?html?)?/*_dateien/' '*.html' '*.htm' '*.xhtml' '*.xhtm'\n" >&2
+	echo -e "\tFilter empty files\n\t$ $(basename -- "$0") '/b0/*' --filter 'ls -alh'\n" >&2
+	echo -e "\tIf okay, move the empty files\n\t$ $(basename -- "$0") '/b0/*' --move\n" >&2
+}
+
+explicit_destination=false
+destination="../trashed-move"
+mode=""
+prefix="backup"
+external_test=""
+failed_external_test_is_successful=false
+simulate=true
+list_only=false
+no_print=false
+only_empty=0
+args=()
+
+while (( $# > 0 )); do
+	case "$1" in
+		--name)
+			if [[ -z "${2-}" || "$2" == -* ]]; then
+				__info "Usage: $0 --name PREFIX"
+				exit 1
+			fi
+			# refuse path separators and empty result
+			if [[ "$2" == */* || -z "${2//[[:space:]]/}" ]]; then
+				__error "--name must be a single path component (no / or whitespace)"
+				exit 1
+			fi
+			prefix="$2"
+			shift 2 ||:
+			;;
+		--directories) mode="d"; shift ||: ;;
+		--files) mode="f"; shift ||: ;;
+		--all) mode="a"; shift ||: ;;
+		--only-empty) only_empty=1; shift ||: ;;
+		--no-list) no_print=true
+			;& # fall-through
+		--list) list_only=true; shift ||: ;;
+		--fail-test)
+			failed_external_test_is_successful=true
+			;& # fall-through
+		--test)
+			if [[ -z "${2-}" || "$2" == -* ]]; then
+				__info "Usage: $0 --test COMMAND" >&2
+				exit 1
+			fi
+			if [[ "$2" == */* ]]; then
+				external_test="$2"
+				[[ -x "$external_test" ]] || {
+					__error "test command not executable: %s" "$2"
+					exit 1
+				}
+			else
+				if command -v "trashed-test-$2" >"/dev/null"; then
+					external_test="trashed-test-$2"
+				else
+					external_test="$2"
+				fi
+			fi
+			shift 2 ||:
+			;;
+		--fail-filter)
+			failed_external_test_is_successful=true
+			;& # fall-through
+		--filter)
+			no_print=true
+			list_only=true
+			if [[ -z "${2-}" || "$2" == -* ]]; then
+				__info "Usage: $0 --test COMMAND" >&2
+				exit 1
+			fi
+			if [[ "$2" == */* ]]; then
+				external_test="$2"
+				[[ -x "$external_test" ]] || {
+					__error "test command not executable: %s" "$2"
+					exit 1
+				}
+			else
+				if command -v "trashed-test-$2" >"/dev/null"; then
+					external_test="trashed-test-$2"
+				else
+					external_test="$2"
+				fi
+			fi
+			shift 2 ||:
+			;;
+		--destination)
+			if [[ -z "${2-}" || "$2" == -* ]]; then
+				usage
+				exit 1
+			fi
+			explicit_destination=true
+			destination="$2"
+			shift 2 ||:
+			;;
+		--move) simulate=false; shift ||: ;;
+		--help) usage; exit 0 ;;
+		--) shift ||:; args+=("$@"); break ;;
+		-*)
+			__info "Unknown option: $1" >&2
+			usage
+			exit 1
+			;;
+		*) args+=("$1"); shift ||: ;;
+	esac
+done
+
+if $no_print; then
+	if [[ -z "$external_test" ]]; then
+		__error "--no-list requires --test COMMAND"
+		exit 1
+	fi
+fi
+
+set -- "${args[@]}"
+
+fs_device() {
+	local p="${1-}"
+	[[ -z "$p" ]] && return 1
+	while [[ ! -e "$p" && ! -L "$p" && "$p" != "/" ]]; do
+		p="$(dirname -- "$p"; printf x)"
+		p="${p%$'\n'x}"
+	done
+
+	stat --format "%d" -- "$p"
+}
+
+same_filesystem() {
+	local a b
+	a="$(fs_device "$1")" || return 1
+	b="$(fs_device "$2")" || return 1
+	[[ "$a" == "$b" ]]
+}
+
+path_inside() {
+	local inner="$1"
+	local outer="$2"
+
+	[[ "$inner" == "$outer" || "$inner" == "$outer"/* ]]
+}
+
+escape_ere() {
+	sed -e 's/[.[\*^$()+?{|]/\\&/g' <<<"$1"
+}
+
+stem_from_glob() {
+	local base="$1"
+	local glob="$2"
+	local suffix
+	if [[ "$glob" == \** ]]; then
+		suffix="${glob#\*}"
+		[[ "$base" != *"$suffix" ]] && return 1
+
+		printf '%s' "${base%"$suffix"}"
+
+		return 0
+	fi
+
+	return 1
+}
+
+size_find_args() {
+	local op="$1"
+	local n="$2"
+	case "$op" in
+		eq) printf '%s\n' -size "${n}c" ;;
+		gt) printf '%s\n' -size "+${n}c" ;;
+		lt) printf '%s\n' -size "-${n}c" ;;
+		ge) printf '%s\n' \( -size "${n}c" -o -size "+${n}c" \) ;;
+		le) printf '%s\n' \( -size "${n}c" -o -size "-${n}c" \) ;;
+	esac
+}
+
+if [[ -z "$mode" ]] && (( $# == 0 )); then
+	__warn "Need --directories, --files, --all, and/or PATTERN"
+	usage
+	exit 1
+fi
+
+mode="${mode:-a}"
+
+case "$mode" in
+	d) type_expr=( -type d ) ;;
+	f) type_expr=( -type f ) ;;
+	a) type_expr=( \( -type f -o -type d \) ) ;;
+	*) __warn "Mode not set"; exit 1 ;;
+esac
+
+empty_expr=()
+if (( only_empty )); then
+	empty_expr=( -empty )
+fi
+
+plain_expr=( \( )
+plain_first=true
+parent_globs=()
+sibling_globs=()
+sibling_extensions=()
+ignore_dir_globs=()
+ignore_file_globs=()
+size_globs=()
+size_ops=()
+size_ns=()
+
+for pat in "$@"; do
+	kind=""
+	glob=""
+	ext=""
+	size_op=""
+	size_n=""
+
+	if [[ "$pat" =~ ^/b0/(.+)$ ]]; then
+		kind="size"
+		size_op="eq"
+		size_n=0
+		glob="${BASH_REMATCH[1]}"
+	elif [[ "$pat" =~ ^/b\>=([0-9]+)/(.+)$ ]]; then
+		kind="size"
+		size_op="ge"
+		size_n="${BASH_REMATCH[1]}"
+		glob="${BASH_REMATCH[2]}"
+	elif [[ "$pat" =~ ^/b\<=([0-9]+)/(.+)$ ]]; then
+		kind="size"
+		size_op="le"
+		size_n="${BASH_REMATCH[1]}"
+		glob="${BASH_REMATCH[2]}"
+	elif [[ "$pat" =~ ^/b\>([0-9]+)/(.+)$ ]]; then
+		kind="size"
+		size_op="gt"
+		size_n="${BASH_REMATCH[1]}"
+		glob="${BASH_REMATCH[2]}"
+	elif [[ "$pat" =~ ^/b\<([0-9]+)/(.+)$ ]]; then
+		kind="size"
+		size_op="lt"
+		size_n="${BASH_REMATCH[1]}"
+		glob="${BASH_REMATCH[2]}"
+	elif [[ "$pat" =~ ^/b([0-9]+)/(.+)$ ]]; then
+		kind="size"
+		size_op="eq"
+		size_n="${BASH_REMATCH[1]}"
+		glob="${BASH_REMATCH[2]}"
+	elif [[ "$pat" == /../* ]]; then
+		kind="parent"
+		glob="${pat#/../}"
+	elif [[ "$pat" == /!/* ]]; then
+		kind="ignore"
+		glob="${pat#/!/}"
+	elif [[ "$pat" == /~*/* ]]; then
+		kind="sibling"
+		rest="${pat#/~}"
+		ext="${rest%%/*}"
+		glob="${rest#*/}"
+	else
+		kind="plain"
+		glob="$pat"
+	fi
+
+	is_dir=false
+	if [[ "$glob" == */ ]]; then
+		is_dir=true
+		glob="${glob%/}"
+	fi
+
+	if [[ "$kind" == "size" ]]; then
+		if [[ "$mode" != "a" && "$mode" != "f" ]]; then
+			__warn "pattern %s ignored in directory-only mode" "$pat"
+			continue
+		fi
+
+		if [[ -z "$glob" ]]; then
+			__warn "pattern %s ignored (empty glob)" "$pat"
+			continue
+		fi
+
+		size_globs+=("$glob")
+		size_ops+=("$size_op")
+		size_ns+=("$size_n")
+
+		continue
+	fi
+
+	if [[ "$kind" != "ignore" ]]; then
+		if $is_dir; then
+			if [[ "$mode" != "a" && "$mode" != "d" ]]; then
+				__warn "pattern %s ignored in file-only mode" "$pat"
+
+				continue
+			fi
+		else
+			if [[ "$mode" != "a" && "$mode" != "f" ]]; then
+				__warn "pattern %s ignored in directory-only mode" "$pat"
+
+				continue
+			fi
+		fi
+	fi
+
+	case "$kind" in
+		"parent")
+			if ! $is_dir; then
+				__warn "pattern %s ignored (/../ requires a directory glob)" "$pat"
+
+				continue
+			fi
+
+			parent_globs+=("$glob")
+			;;
+		"sibling")
+			if ! $is_dir; then
+				__warn "pattern %s ignored (/~/ requires a directory glob)" "$pat"
+
+				continue
+			fi
+
+			sibling_globs+=("$glob")
+			sibling_extensions+=("$ext")
+			;;
+		"ignore")
+			if $is_dir; then
+				ignore_dir_globs+=("$glob")
+			else
+				ignore_file_globs+=("$glob")
+			fi
+			;;
+		"plain")
+			if $is_dir; then
+				clause=( -type d -name "$glob" )
+			else
+				clause=( -type f -name "$glob" )
+			fi
+			if $plain_first; then
+				plain_expr+=( "${clause[@]}" )
+				plain_first=false
+			else
+				plain_expr+=( -o "${clause[@]}" )
+			fi
+			;;
+	esac
+done
+
+plain_expr+=( \) )
+if $plain_first; then
+	plain_expr=()
+fi
+
+if $plain_first && (( ${#parent_globs[@]} == 0 && ${#sibling_globs[@]} == 0 && ${#size_globs[@]} == 0 && $# > 0 )); then
+	__warn "No patterns left after applying --directories/--files"
+
+	exit 0
+fi
+
+if (( ${#parent_globs[@]} + ${#sibling_globs[@]} + ${#plain_expr[@]} + ${#size_globs[@]} > 0 )); then
+	type_expr=()
+fi
+
+if ! $simulate && ! $list_only; then
+	mkdir --parents -- "$destination" || exit 1
+fi
+
+cwd="$(realpath -- ".")"
+if ! $explicit_destination; then
+	if ! same_filesystem "$cwd" "$destination"; then
+		__error "Default destination %s is on another filesystem than %s\nPass --destination DIR on this filesystem." "$destination" "$cwd"
+		exit 1
+	fi
+elif ! same_filesystem "$cwd" "$destination"; then
+	__warn "Destination is on another filesystem than the current directory."
+	__warn "cwd:  %s" "$cwd"
+	__warn "dest: %s" "$destination"
+	if ! __confirm "Continue?"; then
+		__info "Aborted."
+		exit 1
+	fi
+fi
+
+destination="$(realpath --canonicalize-missing -- "$destination")"
+
+run_find() {
+	local find_cmd=( find "." -mindepth 1 )
+
+	if [[ -e "$destination" || -L "$destination" ]]; then
+		find_cmd+=( -samefile "$destination" -prune -o )
+	fi
+	find_cmd+=( "$@" -print0 )
+
+	"${find_cmd[@]}"
+}
+
+find_named() {
+	local find_type="$1"
+	local glob="$2"
+
+	run_find -type "$find_type" "${empty_expr[@]}" -name "$glob"
+}
+
+declare -A claimed=()
+declare -A to_move=()
+declare -A ignored=()
+
+is_ignored() {
+	local p="$1"
+	local c
+
+	[[ -n "${ignored["$p"]:-}" ]] && return 0
+
+	for c in "${!ignored[@]}"; do
+		path_inside "$p" "$c" && return 0
+	done
+
+	return 1
+}
+
+mark_ignored() {
+	local p="$1"
+
+	[[ -z "$p" ]] && return 1
+
+	ignored["$p"]=1
+}
+
+claim() {
+	local p="$1"
+
+	[[ -z "$p" ]] && return 1
+
+	[[ "$p" == "." || "$p" == "./." ]] && return 1
+
+	is_ignored "$p" && return 1
+
+	if [[ -n "$external_test" ]] && ! $no_print; then
+		local test_result=0
+		# resolve to an array once at parse time, not here
+		"${external_test_cmd[@]}" "$p" || test_result=$?
+		$failed_external_test_is_successful && (( test_result == 0 )) && return 1
+		! $failed_external_test_is_successful && (( test_result > 0 )) && return 1
+	fi
+
+	claimed["$p"]=1
+	to_move["$p"]=1
+}
+
+already_claimed() {
+	local p="$1"
+	local c
+
+	[[ -n "${claimed["$p"]:-}" ]] && return 0
+
+	for c in "${!claimed[@]}"; do
+		path_inside "$p" "$c" && return 0
+	done
+
+	return 1
+}
+
+for glob in "${ignore_dir_globs[@]}"; do
+	while IFS= read -r -d '' item; do
+
+		[[ -z "$item" ]] && continue
+
+		mark_ignored "$item"
+	done < <(find_named d "$glob")
+done
+
+for glob in "${ignore_file_globs[@]}"; do
+	while IFS= read -r -d '' item; do
+
+		[[ -z "$item" ]] && continue
+
+		mark_ignored "$item"
+	done < <(find_named f "$glob")
+done
+
+si=0
+while (( si < ${#size_globs[@]} )); do
+	glob="${size_globs["$si"]}"
+	size_op="${size_ops["$si"]}"
+	size_n="${size_ns["$si"]}"
+	si="$((si + 1))" ||:
+
+	mapfile -t size_args < <(size_find_args "$size_op" "$size_n")
+
+	while IFS= read -r -d '' item; do
+
+		[[ -z "$item" ]] && continue
+
+		already_claimed "$item" && continue
+		claim "$item" ||:
+
+	done < <(run_find -type f "${empty_expr[@]}" -name "$glob" "${size_args[@]}")
+done
+
+for glob in "${parent_globs[@]}"; do
+	while IFS= read -r -d '' item; do
+		[[ -z "$item" ]] && continue
+
+		parent="$(dirname -- "$item"; printf x)"
+		parent="${parent%$'\n'x}"
+		if [[ "$parent" == "." || "$parent" == "./." ]]; then
+			__warn "not moving parent of %s (parent is the current directory)" "$item"
+			continue
+		fi
+
+		already_claimed "$parent" && continue
+		is_ignored "$parent" && continue
+		is_ignored "$item" && continue
+
+		claim "$parent" ||:
+	done < <(find_named d "$glob")
+done
+
+i=0
+while (( i < ${#sibling_globs[@]} )); do
+	glob="${sibling_globs["$i"]}"
+	ext="${sibling_extensions["$i"]}"
+	i=$((i + 1)) ||:
+	while IFS= read -r -d '' item; do
+		[[ -z "$item" ]] && continue
+
+		already_claimed "$item" && continue
+
+		base="${item##*/}"
+		dir="$(dirname -- "$item"; printf x)"
+		dir="${dir%$'\n'x}"
+		stem="$(stem_from_glob "$base" "$glob" ||:)"
+
+		claim "$item" || continue
+
+		found_sib=false
+
+		if [[ -n "$stem" ]]; then
+			for sib in "$dir"/* "$dir"/.*; do
+				! [[ -e "$sib" || -L "$sib" ]] && continue
+				[[ ! -f "$sib" ]] && continue
+
+				sbase="${sib##*/}"
+				if [[ "$sbase" =~ ^$(escape_ere "$stem")${ext}$ ]]; then
+					found_sib=true
+					already_claimed "$sib" || claim "$sib"
+				fi
+			done
+		fi
+		if ! $found_sib; then
+			__warn "no sibling matching %s%s next to %s (moving the directory anyway)" "$stem" "$ext" "$item"
+		fi
+	done < <(find_named d "$glob")
+done
+
+if (( ${#plain_expr[@]} > 0 )); then
+	while IFS= read -r -d '' item; do
+		[[ -z "$item" ]] && continue
+		[[ "$item" == "." || "$item" == "./." ]] && continue
+
+		already_claimed "$item" && continue
+		claim "$item" ||:
+
+	done < <(run_find "${empty_expr[@]}" "${plain_expr[@]}")
+elif (( ${#parent_globs[@]} == 0 && ${#sibling_globs[@]} == 0 && ${#size_globs[@]} == 0 )); then
+	while IFS= read -r -d '' item; do
+		[[ -z "$item" ]] && continue
+		[[ "$item" == "." || "$item" == "./." ]] && continue
+
+		claim "$item" ||:
+
+	done < <(run_find "${type_expr[@]}" "${empty_expr[@]}")
+fi
+
+if [[ "$prefix" != "backup" ]]; then
+	wrapper_default="$destination/$prefix"
+else
+	wrapper_default="$destination/${prefix}_$__current_date"
+fi
+wrapper="${wrapper_default}"
+
+i=0
+while [[ -e "$wrapper" ]]; do
+	i="$((i + 1))" ||:
+	wrapper="${wrapper_default}_$i"
+done
+
+if ! $simulate && ! $list_only; then
+	mkdir --parents -- "$wrapper" || exit 1
+fi
+
+moved=0
+while IFS= read -r item; do
+	[[ -z "$item" ]] && continue
+	! [[ -e "$item" || -L "$item" ]] && continue
+
+	relative="$(realpath --relative-to="." -- "$item")"
+	rel_dir="$(dirname -- "$relative"; printf x)"
+	rel_dir="${rel_dir%$'\n'x}"
+	if [[ "$rel_dir" == "." ]]; then
+		target_parent="$wrapper"
+	else
+		target_parent="$wrapper/$rel_dir"
+	fi
+
+	if $list_only; then
+		if $no_print; then
+			external_test_cmd=()
+			# shellcheck disable=SC2206
+			external_test_cmd=($external_test)
+			"${external_test_cmd[@]}" "$item" ||:
+		else
+			printf '%s\n' "$item"
+		fi
+		moved="$((moved + 1))" ||:
+
+		continue
+	fi
+
+	if $simulate; then
+		echo "'$item' -> "
+		echo "'$target_parent/'"
+		echo
+		moved="$((moved + 1))" ||:
+
+		continue
+	fi
+
+	if mkdir --parents -- "$target_parent" && mv -- "$item" "$target_parent/"; then
+		__info "Moved: %s -> %s" "$item" "$target_parent/$(basename -- "$item")"
+		moved="$((moved + 1))" ||:
+	else
+		__warning "FAILED: %s -> %s" "$item" "$target_parent/$(basename -- "$item")"
+	fi
+done < <(printf '%s\n' "${!to_move[@]}" | awk '{ print length, $0 }' | sort -n | cut -d' ' -f2-)
+
+if (( moved == 0 )); then
+	__info "Nothing to do."
+	exit 0
+fi

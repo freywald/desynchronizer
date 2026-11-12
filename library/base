@@ -1,8 +1,6 @@
 #!/bin/bash
 
-library_path="$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/")/"
-if [[ -f "$library_path/FORCE_EXTERNAL_LIBRARY" ]] || [[ -L "$library_path/external_common-library" && -e "$library_path/external_common-library" ]]; then
-	source -- "$library_path/external_common-library"
-else
-	source -- "$library_path/common-library.v2"
-fi
+source -- "packages/package-summary.dynamic" || exit 1
+source -- "$__ex10dead_common_library_library_path/library/common" || exit 1
+
+__enable_error_handler

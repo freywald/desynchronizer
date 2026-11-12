@@ -1,0 +1,18 @@
+# name=ex10dead_common_library
+# type=url
+https://github.com/freywald/ex10dead-common-library
+
+# type=apt
+rhash
+
+# type=apt
+xxhash
+
+# type=apt
+rsync
+
+# type=apt
+rclone
+
+# type=apt
+moreutils
