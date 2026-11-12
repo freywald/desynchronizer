@@ -1,6 +1,8 @@
 #!/bin/bash
 
-source -- "packages/package-summary.dynamic" || exit 1
-source -- "$__ex10dead_common_library_library_path/library/common" || exit 1
+root_path="$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/")/../"
+
+source -- "$root_path/packages/package-summary.dynamic" || exit 1
+source -- "$root_path/$__ex10dead_common_library_library_path/library/common" || exit 1
 
 __enable_error_handler
