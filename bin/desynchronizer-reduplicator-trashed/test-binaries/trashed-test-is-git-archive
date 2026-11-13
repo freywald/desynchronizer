@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source -- "library/base" || exit 1
+source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/../../../")/library/base" || exit 1
 
 (( $# == 0 )) && exit 1
 

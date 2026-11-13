@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source -- "library/base" || exit 1
+source -- "$(realpath "$(dirname -- "${BASH_SOURCE[0]}")/../../")/library/base" || exit 1
 
 move_enabled=""
 
@@ -33,7 +33,6 @@ while (( $# )); do
 	esac
 done
 
-desynchronizer-reduplicator-trashed-move '/../.git/' --test is-git-archive ${move_enabled:+"$move_enabled"}
-desynchronizer-reduplicator-trashed-move '/~(x?html?)?/*_files/' '/~(x?html?)?/*-Dateien/' '/~(x?html?)?/*-dateien/' '/~(x?html?)?/*_dateien/' '*.html' '*.htm' '*.xhtml' '*.xhtm' ${move_enabled:+"$move_enabled"}
-desynchronizer-reduplicator-trashed-move '/b0/*' ${move_enabled:+"$move_enabled"}
-
+desynchronizer-reduplicator-trashed-separate-and-move '/../.git/' --test is-git-archive ${move_enabled:+"$move_enabled"}
+desynchronizer-reduplicator-trashed-separate-and-move '/~(x?html?)?/*_files/' '/~(x?html?)?/*-Dateien/' '/~(x?html?)?/*-dateien/' '/~(x?html?)?/*_dateien/' '*.html' '*.htm' '*.xhtml' '*.xhtm' ${move_enabled:+"$move_enabled"}
+desynchronizer-reduplicator-trashed-separate-and-move '/b0/*' ${move_enabled:+"$move_enabled"}

@@ -6,9 +6,14 @@ bootstrap_file_sha256="c5eb44e68467a88d1af64964a7c650b9ce372b17caad4e61981cc889d
 ex10dead_common_library_sha256="f7da97284da53f300283e9f85493252a3619f285864f712fa7140b28ae2970bd"
 ex10dead_project_sha256="360b032bdf82ddbb59d93f17f3a758c76620e20876ae7b1deeccab170fa1a9ce"
 
-bootstrap_file_url="https://github.com/freywald/ex10dead-project/blob/41d72ac0eed5b6bf7a6ade0f6e11c349451c35a9/bin/bootstrap_install"
-ex10dead_common_library_url="https://github.com/freywald/ex10dead-common-library/tree/deeb2b515981d5b997a8172f644c2775ca38a1d5"
-ex10dead_project_url="https://github.com/freywald/ex10dead-project/tree/41d72ac0eed5b6bf7a6ade0f6e11c349451c35a9"
+bootstrap_file_url="https://raw.githubusercontent.com/freywald/ex10dead-project/41d72ac0eed5b6bf7a6ade0f6e11c349451c35a9/bin/bootstrap_install"
+#bootstrap_file_url=""
+
+ex10dead_common_library_url="https://github.com/freywald/ex10dead-common-library"
+#ex10dead_common_library_url="https://github.com/freywald/ex10dead-common-library/tree/deeb2b515981d5b997a8172f644c2775ca38a1d5"
+
+ex10dead_project_url="https://github.com/freywald/ex10dead-project"
+#ex10dead_project_url="https://github.com/freywald/ex10dead-project/tree/41d72ac0eed5b6bf7a6ade0f6e11c349451c35a9"
 
 script_path_level=0
 
