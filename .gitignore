@@ -4,4 +4,4 @@
 archive/
 packages.pinned.sources
 /packages/core-library/*
-/packages/libraries/*
+/packages/library/*
