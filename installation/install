@@ -66,6 +66,8 @@ function __set_script_path() {
 
 __set_script_path "$script_path_level" || exit 1
 
+mkdir --parents -- "packages"
+touch -- "packages/FLAG_IS_PROJECT"
 cp -- "installation/packages.sources" "packages/packages.sources"
 
 bootstrap_file="installation/bootstrap_install"
